@@ -1,22 +1,40 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { vi, describe, beforeEach, it, expect } from 'vitest';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
+import { PrismaService } from './database/prisma.service.js';
 
 describe('AppController', () => {
   let appController: AppController;
 
   beforeEach(async () => {
+    const mockPrismaService = {
+      $queryRaw: vi.fn().mockResolvedValue([{ db: 'postgres', version: 'PostgreSQL 17.11', now: new Date() }]),
+      institution: { count: vi.fn().mockResolvedValue(1) },
+      campaign: { count: vi.fn().mockResolvedValue(0) },
+    };
+
     const app: TestingModule = await Test.createTestingModule({
       controllers: [AppController],
-      providers: [AppService],
+      providers: [
+        AppService,
+        { provide: PrismaService, useValue: mockPrismaService },
+      ],
     }).compile();
 
     appController = app.get<AppController>(AppController);
   });
 
   describe('root', () => {
-    it('should return "Hello World!"', () => {
-      expect(appController.getHello()).toBe('Hello World!');
+    it('should return API status message', () => {
+      expect(appController.getHello()).toBe('DonaKit API Online');
+    });
+
+    it('should return health status with database connection', async () => {
+      const health = await appController.getHealth();
+      expect(health.status).toBe('ok');
+      expect(health.database.status).toBe('connected');
+      expect(health.database.counts.institutions).toBe(1);
     });
   });
 });
