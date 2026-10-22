@@ -17,6 +17,8 @@ describe('PrismaService (Supabase Integration)', () => {
     const institutions = await prisma.institution.findMany();
     expect(Array.isArray(institutions)).toBe(true);
     expect(institutions.length).toBeGreaterThan(0);
-    console.log(` Conexión validada: Se encontraron ${institutions.length} instituciones en Supabase.`);
+    console.log(
+      ` Conexión validada: Se encontraron ${institutions.length} instituciones en Supabase.`,
+    );
   });
 });

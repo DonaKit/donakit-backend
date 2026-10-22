@@ -11,7 +11,9 @@ export class AppService {
 
   async getHealth() {
     const start = performance.now();
-    const [raw] = await this.prisma.$queryRaw<Array<{ db: string; version: string; now: Date }>>`
+    const [raw] = await this.prisma.$queryRaw<
+      Array<{ db: string; version: string; now: Date }>
+    >`
       SELECT current_database() as db, version() as version, now() as now
     `;
     const latencyMs = Math.round(performance.now() - start);

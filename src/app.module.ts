@@ -1,11 +1,17 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
+import { CampaignModule } from './campaign/campaign.module.js';
+import { SnakeToCamelMiddleware } from './common/middleware/snake-to-camel.middleware.js';
 import { DatabaseModule } from './database/database.module.js';
 
 @Module({
-  imports: [DatabaseModule],
+  imports: [DatabaseModule, CampaignModule],
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(SnakeToCamelMiddleware).forRoutes('*');
+  }
+}
