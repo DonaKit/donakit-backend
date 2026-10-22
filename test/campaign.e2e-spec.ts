@@ -233,6 +233,26 @@ describe('CampaignController (e2e) - US-01 / ST-03, ST-04, ST-05', () => {
       createdCampaignIds.push(response.body.data.id);
     });
 
+    it('debe permitir crear un pedido con bloodType "Todos" (reposición / cualquier grupo)', async () => {
+      const payload = {
+        patientName: 'Camila Valdez',
+        institutionId: testInstitutionId,
+        bloodType: 'Todos',
+        donationType: 'Sangre entera',
+      };
+
+      const response = await request(app.getHttpServer())
+        .post('/campaigns')
+        .send(payload)
+        .expect(201);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.patientName).toBe('Camila Valdez');
+      expect(response.body.data.bloodType).toBe('TODOS');
+
+      createdCampaignIds.push(response.body.data.id);
+    });
+
     it('debe consultar el pedido por su UUID (GET /campaigns/:id)', async () => {
       const response = await request(app.getHttpServer())
         .get(`/campaigns/${createdCampaign.id}`)

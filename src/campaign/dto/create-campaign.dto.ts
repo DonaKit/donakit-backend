@@ -24,6 +24,7 @@ export const VALID_BLOOD_TYPES = [
   '0-',
   'O+',
   'O-',
+  'TODOS',
 ] as const;
 
 export type ValidBloodType = (typeof VALID_BLOOD_TYPES)[number];
@@ -58,8 +59,8 @@ export class CreateCampaignDto {
   institutionId!: string;
 
   /**
-   * Grupo sanguíneo y factor Rh requerido (ej. "0+", "A+", "B-").
-   * Obligatorio según US-01.
+   * Grupo sanguíneo y factor Rh requerido (ej. "0+", "A+", "B-", "TODOS").
+   * Obligatorio según US-01. Acepta también "TODOS" cuando se solicitan donantes de cualquier grupo.
    */
   @Transform(({ value }) =>
     typeof value === 'string' ? value.trim().toUpperCase() : value,
@@ -68,7 +69,7 @@ export class CreateCampaignDto {
   @IsString({ message: 'El grupo sanguíneo debe ser un texto válido.' })
   @IsIn(VALID_BLOOD_TYPES, {
     message:
-      'El grupo sanguíneo debe ser uno de los formatos válidos: A+, A-, B+, B-, AB+, AB-, 0+, 0-, O+, O-.',
+      'El grupo sanguíneo debe ser uno de los formatos válidos: A+, A-, B+, B-, AB+, AB-, 0+, 0-, O+, O- o TODOS.',
   })
   bloodType!: string;
 
