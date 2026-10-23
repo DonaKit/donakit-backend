@@ -9,7 +9,11 @@ describe('AppController', () => {
 
   beforeEach(async () => {
     const mockPrismaService = {
-      $queryRaw: vi.fn().mockResolvedValue([{ db: 'postgres', version: 'PostgreSQL 17.11', now: new Date() }]),
+      $queryRaw: vi
+        .fn()
+        .mockResolvedValue([
+          { db: 'postgres', version: 'PostgreSQL 17.11', now: new Date() },
+        ]),
       institution: { count: vi.fn().mockResolvedValue(1) },
       campaign: { count: vi.fn().mockResolvedValue(0) },
     };

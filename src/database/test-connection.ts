@@ -17,25 +17,34 @@ async function runTest() {
     console.log(`⏱️  Latencia de Ping   : ${pingLatency} ms`);
 
     // 2. Información del motor PostgreSQL
-    const rawResult: Array<{ db_name: string; pg_version: string; server_time: Date }> =
+    const rawResult: Array<{
+      db_name: string;
+      pg_version: string;
+      server_time: Date;
+    }> =
       await prisma.$queryRaw`SELECT current_database() as db_name, version() as pg_version, now() as server_time`;
 
     if (rawResult.length > 0) {
       console.log(`📦 Base de Datos      : ${rawResult[0].db_name}`);
-      console.log(`🕒 Hora del Servidor  : ${rawResult[0].server_time.toISOString()}`);
-      console.log(`🐘 Versión Postgres   : ${rawResult[0].pg_version.split(',')[0]}`);
+      console.log(
+        `🕒 Hora del Servidor  : ${rawResult[0].server_time.toISOString()}`,
+      );
+      console.log(
+        `🐘 Versión Postgres   : ${rawResult[0].pg_version.split(',')[0]}`,
+      );
     }
 
     console.log('\n------------------------------------------------------');
     console.log('📊 CONTEO DE TABLAS REALES EN SUPABASE');
     console.log('------------------------------------------------------');
 
-    const [institutionsCount, campaignsCount, faqsCount, requirementsCount] = await Promise.all([
-      prisma.institution.count(),
-      prisma.campaign.count(),
-      prisma.faq_item.count(),
-      prisma.requirement.count(),
-    ]);
+    const [institutionsCount, campaignsCount, faqsCount, requirementsCount] =
+      await Promise.all([
+        prisma.institution.count(),
+        prisma.campaign.count(),
+        prisma.faq_item.count(),
+        prisma.requirement.count(),
+      ]);
 
     console.table([
       { Tabla: 'institution', 'Registros Existentes': institutionsCount },
@@ -63,7 +72,9 @@ async function runTest() {
         direccion: sampleInstitution.address,
         ciudad: sampleInstitution.city,
         horarios: sampleInstitution.business_hours,
-        requisitosCargados: sampleInstitution.requirement.map((r) => `• ${r.title}`),
+        requisitosCargados: sampleInstitution.requirement.map(
+          (r) => `• ${r.title}`,
+        ),
       });
     }
 
@@ -99,11 +110,15 @@ async function runTest() {
       await prisma.campaign.delete({
         where: { id: mockCampaign.id },
       });
-      console.log('🧹 Limpieza completada: Registro mock eliminado correctamente.');
+      console.log(
+        '🧹 Limpieza completada: Registro mock eliminado correctamente.',
+      );
     }
 
     console.log('\n======================================================');
-    console.log('🎉 RESULTADO FINAL: Conexión, lectura y escritura 100% operativas');
+    console.log(
+      '🎉 RESULTADO FINAL: Conexión, lectura y escritura 100% operativas',
+    );
     console.log('======================================================\n');
   } catch (error) {
     console.error('❌ Error durante la prueba de conexión:', error);
