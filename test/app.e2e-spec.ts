@@ -23,6 +23,13 @@ describe('AppController (e2e)', () => {
       .expect('DonaKit API Online');
   });
 
+  it('/health (GET) debe responder 200 con { status: "ok" } sin exponer metadatos internos', () => {
+    return request(app.getHttpServer())
+      .get('/health')
+      .expect(200)
+      .expect({ status: 'ok' });
+  });
+
   afterEach(async () => {
     await app.close();
   });

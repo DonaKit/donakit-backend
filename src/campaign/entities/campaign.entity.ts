@@ -28,4 +28,23 @@ export class CampaignEntity {
   constructor(partial: Partial<CampaignEntity>) {
     Object.assign(this, partial);
   }
+
+  toPublic() {
+    return {
+      id: this.id,
+      institutionId: this.institutionId,
+      patientName: this.patientName,
+      bloodType: this.bloodType,
+      donationType: this.donationType,
+      targetDonors: this.targetDonors,
+      currentDonors: this.currentDonors,
+      deadline: this.deadline,
+      observations: this.observations,
+      generatedCopy: this.generatedCopy,
+      status: this.status,
+      createdAt: this.createdAt,
+      updatedAt: this.updatedAt,
+      institution: this.institution,
+    };
+  }
 }

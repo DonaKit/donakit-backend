@@ -47,10 +47,12 @@ describe('CampaignController', () => {
   });
 
   describe('findOne', () => {
-    it('debe llamar a service.findById si el parámetro es un UUID v4', async () => {
+    it('debe llamar a service.findById si el parámetro es un UUID v4 y devolver DTO público sin editToken ni slug', async () => {
       const uuid = '63a65bfe-3c92-484e-b658-d3446355e5c2';
       const mockCampaign = new CampaignEntity({
         id: uuid,
+        slug: 'donantes-test-123456',
+        editToken: 'secret-edit-token-123',
         patientName: 'Test',
       });
       mockService.findById.mockResolvedValue(mockCampaign);
@@ -59,19 +61,30 @@ describe('CampaignController', () => {
 
       expect(mockService.findById).toHaveBeenCalledWith(uuid);
       expect(mockService.findBySlug).not.toHaveBeenCalled();
-      expect(response.data).toBe(mockCampaign);
+      expect(response.data.id).toBe(uuid);
+      expect(response.data.patientName).toBe('Test');
+      expect((response.data as any).editToken).toBeUndefined();
+      expect((response.data as any).slug).toBeUndefined();
     });
 
-    it('debe llamar a service.findBySlug si el parámetro no es un UUID', async () => {
+    it('debe llamar a service.findBySlug si el parámetro no es un UUID y devolver DTO público sin editToken ni slug', async () => {
       const slug = 'donantes-lucia-fernandez-123456';
-      const mockCampaign = new CampaignEntity({ slug, patientName: 'Test' });
+      const mockCampaign = new CampaignEntity({
+        id: '63a65bfe-3c92-484e-b658-d3446355e5c2',
+        slug,
+        editToken: 'secret-edit-token-123',
+        patientName: 'Test',
+      });
       mockService.findBySlug.mockResolvedValue(mockCampaign);
 
       const response = await controller.findOne(slug);
 
       expect(mockService.findBySlug).toHaveBeenCalledWith(slug);
       expect(mockService.findById).not.toHaveBeenCalled();
-      expect(response.data).toBe(mockCampaign);
+      expect(response.data.id).toBe('63a65bfe-3c92-484e-b658-d3446355e5c2');
+      expect(response.data.patientName).toBe('Test');
+      expect((response.data as any).editToken).toBeUndefined();
+      expect((response.data as any).slug).toBeUndefined();
     });
   });
 });
