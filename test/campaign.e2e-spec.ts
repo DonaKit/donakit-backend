@@ -253,18 +253,19 @@ describe('CampaignController (e2e) - US-01 / ST-03, ST-04, ST-05', () => {
       createdCampaignIds.push(response.body.data.id);
     });
 
-    it('debe consultar el pedido por su UUID (GET /campaigns/:id)', async () => {
+    it('debe consultar el pedido por su UUID (GET /campaigns/:id) y devolver DTO público sin editToken ni slug', async () => {
       const response = await request(app.getHttpServer())
         .get(`/campaigns/${createdCampaign.id}`)
         .expect(200);
 
       expect(response.body.success).toBe(true);
       expect(response.body.data.id).toBe(createdCampaign.id);
-      expect(response.body.data.slug).toBe(createdCampaign.slug);
       expect(response.body.data.patientName).toBe('Sofía Agustina Martínez');
+      expect(response.body.data.editToken).toBeUndefined();
+      expect(response.body.data.slug).toBeUndefined();
     });
 
-    it('debe consultar el pedido por su slug amigable (GET /campaigns/:slug)', async () => {
+    it('debe consultar el pedido por su slug amigable (GET /campaigns/:slug) y devolver DTO público sin editToken ni slug', async () => {
       const response = await request(app.getHttpServer())
         .get(`/campaigns/${createdCampaign.slug}`)
         .expect(200);
@@ -273,6 +274,8 @@ describe('CampaignController (e2e) - US-01 / ST-03, ST-04, ST-05', () => {
       expect(response.body.data.id).toBe(createdCampaign.id);
       expect(response.body.data.patientName).toBe('Sofía Agustina Martínez');
       expect(response.body.data.institution.name).toBeDefined();
+      expect(response.body.data.editToken).toBeUndefined();
+      expect(response.body.data.slug).toBeUndefined();
     });
   });
 });

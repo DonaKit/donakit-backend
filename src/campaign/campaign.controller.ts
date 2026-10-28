@@ -10,6 +10,7 @@ import {
 import { CampaignService } from './campaign.service.js';
 import { CampaignResponseDto } from './dto/campaign-response.dto.js';
 import { CreateCampaignDto } from './dto/create-campaign.dto.js';
+import { PublicCampaignResponseDto } from './dto/public-campaign.dto.js';
 
 const UUID_V4_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -37,12 +38,13 @@ export class CampaignController {
   }
 
   /**
-   * Obtiene los detalles de un pedido de donación por su UUID o su slug amigable.
+   * Obtiene los detalles públicos de un pedido de donación por su UUID o su slug amigable.
+   * Por seguridad, no expone el editToken ni el slug en la respuesta pública.
    */
   @Get(':idOrSlug')
   async findOne(
     @Param('idOrSlug') idOrSlug: string,
-  ): Promise<CampaignResponseDto> {
+  ): Promise<PublicCampaignResponseDto> {
     const isUuid = UUID_V4_REGEX.test(idOrSlug);
     const campaign = isUuid
       ? await this.campaignService.findById(idOrSlug)
@@ -51,7 +53,7 @@ export class CampaignController {
     return {
       success: true,
       message: 'Pedido de donación obtenido exitosamente.',
-      data: campaign,
+      data: campaign.toPublic(),
     };
   }
 }

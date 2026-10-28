@@ -34,11 +34,9 @@ describe('AppController', () => {
       expect(appController.getHello()).toBe('DonaKit API Online');
     });
 
-    it('should return health status with database connection', async () => {
+    it('should return streamlined health status { status: "ok" }', async () => {
       const health = await appController.getHealth();
-      expect(health.status).toBe('ok');
-      expect(health.database.status).toBe('connected');
-      expect(health.database.counts.institutions).toBe(1);
+      expect(health).toEqual({ status: 'ok' });
     });
   });
 });
