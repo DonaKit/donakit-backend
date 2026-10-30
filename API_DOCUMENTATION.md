@@ -40,20 +40,27 @@ sequenceDiagram
     Back->>DB: Guarda campaña (status: 'DRAFT', genera slug y edit_token)
     Back-->>Front: Responde 201 Created { id, slug, editToken, status: 'DRAFT' }
     Note over Front: Renderiza placas en canvas (1:1 y 9:16) con QR del slug real
-    Front->>Back: POST /campaigns/:id/assets (editToken + Base64)
-    Back->>Storage: Sube PNGs a bucket 'campaign-assets'
-    Back->>DB: Registra placas en tabla campaign_asset
-    Back-->>Front: 201 Created con URLs públicas de las placas
     
-    alt Usuario detecta un error ("Corregir")
+    alt Previsualización opcional de placas en backend
+        Front->>Back: POST /campaigns/:id/assets (editToken + Base64, recordDownload: false)
+        Back->>Storage: Sube PNGs a bucket 'campaign-assets'
+        Back->>DB: Registra placas en tabla campaign_asset
+    end
+
+    alt Confirmar y descargar placas en el dispositivo (US-07)
+        Donante->>Front: Clic en "Confirmar y descargar" (1:1 y/o 9:16)
+        Front->>Back: POST /campaigns/:id/assets (editToken, assets seleccionados)
+        Note over Back: Valida si la imagen cambió (hash SHA-256) evitando re-subidas innecesarias
+        Back->>DB: Actualiza status = 'ACTIVE' (guarda definitivamente el pedido)
+        Back->>DB: Registra evento en download_log (con ip_hash SHA-256)
+        Back-->>Front: 201 Created con URLs públicas de las placas
+        Note over Front: Desencadena descarga automática (JPG/PNG) en el almacenamiento local
+    end
+
+    alt Usuario detecta un error ("Corregir datos")
         Donante->>Front: Modifica datos en el paso de edición
         Front->>Back: PATCH /campaigns/:id (con edit_token)
         Back->>DB: Actualiza campos modificados
-    else Usuario confirma ("Publicar / Finalizar")
-        Donante->>Front: Confirma la campaña
-        Front->>Back: PATCH /campaigns/:id/confirm (status -> 'ACTIVE')
-        Back->>DB: Actualiza status = 'ACTIVE'
-        Back-->>Front: Campaña lista y pública para compartir
     end
 ```
 
@@ -274,9 +281,15 @@ Permite visualizar la información de una campaña para los donantes que acceden
 
 ---
 
-### 3.5. Registrar y Subir Placas Gráficas Generadas (`POST /campaigns/:id/assets`)
+### 3.5. Registrar, Confirmar y Descargar Placas Gráficas Generadas (`POST /campaigns/:id/assets`) - US-07
 
-Permite al frontend (que genera las placas en canvas de alta fidelidad) enviar las imágenes en formato Base64 para que el backend las almacene en el bucket de **Supabase Storage** (`campaign-assets`) y registre los metadatos correspondientes en la tabla **`campaign_asset`**.
+Permite al frontend (que genera las placas en canvas de alta fidelidad) registrar y almacenar las imágenes en el bucket de **Supabase Storage** (`campaign-assets`) y registrar los metadatos correspondientes en la tabla **`campaign_asset`**.
+
+Además, este endpoint cumple las reglas de negocio de la historia de usuario **US-07**:
+1. **Deduplicación inteligente (Control de cambios):** Compara el contenido de la imagen recibida contra el archivo existente en Supabase Storage mediante un hash criptográfico **SHA-256** (`isSameFile`). Si la placa es idéntica a la ya existente, se reutiliza el asset sin re-subir bytes duplicados.
+2. **Carga opcional de Base64:** Si una placa ya fue almacenada durante la previsualización, el difusor puede confirmar y descargar enviando únicamente el formato (ej. `{ "format": "SQUARE_1_1" }`) sin tener que reenviar el string Base64.
+3. **Guardado definitivo de la campaña:** Si el pedido se encuentra en estado borrador (`DRAFT`), se actualiza automáticamente a estado activo (`ACTIVE`), consolidando la publicación de la campaña en la plataforma.
+4. **Registro de auditoría y métricas de descarga:** Cada placa descargada/confirmada crea una fila en la tabla **`download_log`** (`IMAGE_1_1` o `IMAGE_9_16`), almacenando la fecha y el hash SHA-256 de la dirección IP (`ip_hash`) para preservar la privacidad de los usuarios. Puede deshabilitarse enviando `"recordDownload": false` en peticiones internas de previsualización.
 
 * **Método:** `POST`
 * **Ruta:** `/campaigns/:id/assets`
@@ -288,6 +301,7 @@ Permite al frontend (que genera las placas en canvas de alta fidelidad) enviar l
 ```json
 {
   "editToken": "8f3a9b1c-2e4d-4a1b-8c2d-3e4f5a6b7c8d",
+  "recordDownload": true,
   "assets": [
     {
       "format": "SQUARE_1_1",
@@ -305,14 +319,27 @@ Permite al frontend (que genera las placas en canvas de alta fidelidad) enviar l
 }
 ```
 
+*Ejemplo de confirmación sin reenviar Base64 (si la placa ya fue cargada en previsualización):*
+```json
+{
+  "editToken": "8f3a9b1c-2e4d-4a1b-8c2d-3e4f5a6b7c8d",
+  "assets": [
+    {
+      "format": "SQUARE_1_1"
+    }
+  ]
+}
+```
+
 #### Parámetros del Body:
 
 | Campo | Tipo | Obligatorio | Descripción y Reglas |
 | :--- | :--- | :---: | :--- |
 | `editToken` | `string` | **Sí** | Token secreto de edición asignado al crear el pedido. Acepta también `edit_token`. |
-| `assets` | `array` | **Sí** | Colección de placas generadas (mínimo 1 elemento). |
+| `recordDownload` | `boolean` | No | Determina si se registra el evento en `download_log`. Por defecto `true`. Acepta también `record_download`. |
+| `assets` | `array` | **Sí** | Colección de placas generadas (mínimo 1 elemento). Puede contener una sola placa o ambas. |
 | `assets[].format` | `string` | **Sí** | Formato de la placa: `SQUARE_1_1` (feed) o `STORY_9_16` (historia). |
-| `assets[].imageBase64` | `string` | **Sí** | Imagen codificada en Base64. Acepta Data URL (`data:image/png;base64,...`) o Base64 puro. Formatos soportados: PNG, JPEG y WebP. Acepta también `image_base64`. |
+| `assets[].imageBase64` | `string` | Condicional | Imagen en Base64 (Data URL o Base64 puro). **Obligatoria solo si la placa no fue creada previamente en previsualización**. Acepta también `image_base64`. |
 | `assets[].width` | `integer` | No | Ancho en píxeles (por defecto `1080`). Mínimo `100`. |
 | `assets[].height` | `integer` | No | Alto en píxeles (por defecto `1080` para 1:1 y `1920` para 9:16). Mínimo `100`. |
 
@@ -345,7 +372,7 @@ Permite al frontend (que genera las placas en canvas de alta fidelidad) enviar l
 ```
 
 #### Errores Comunes:
-* **`400 Bad Request`:** Formato de UUID inválido en `:id`, Base64 corrupto, tipo de archivo no admitido o campos obligatorios faltantes.
+* **`400 Bad Request`:** Formato de UUID inválido en `:id`, Base64 corrupto, tipo de archivo no admitido, lista de assets vacía o solicitud de placa sin Base64 cuando no existía previamente.
 * **`403 Forbidden`:** El `editToken` enviado no coincide con el token del creador de la campaña.
 * **`404 Not Found`:** No existe una campaña con el UUID indicado.
 
@@ -397,7 +424,33 @@ Permite al frontend (que genera las placas en canvas de alta fidelidad) enviar l
 
 ---
 
-### 4.3. Enumeraciones del Sistema (Enums)
+### 4.3. Tabla: `campaign_asset` (Placas Gráficas Almacenadas)
+
+| Columna | Tipo en BD | Nulo | Por Defecto | Descripción |
+| :--- | :--- | :---: | :--- | :--- |
+| `id` | `UUID` | No | `uuid_generate_v4()` | Identificador único del asset. |
+| `campaign_id` | `UUID` | No | - | Referencia foránea a la campaña (`ON DELETE CASCADE`). |
+| `format` | `asset_format` | No | - | Formato de la placa (`SQUARE_1_1` o `STORY_9_16`). |
+| `image_url` | `TEXT` | No | - | URL pública en Supabase Storage (`campaign-assets`). |
+| `width` | `INTEGER` | No | - | Ancho en píxeles (ej. 1080). |
+| `height` | `INTEGER` | No | - | Alto en píxeles (ej. 1080 o 1920). |
+| `created_at` | `TIMESTAMPTZ(6)` | No | `now()` | Fecha y hora UTC del registro. |
+
+---
+
+### 4.4. Tabla: `download_log` (Auditoría de Descargas - US-07)
+
+| Columna | Tipo en BD | Nulo | Por Defecto | Descripción |
+| :--- | :--- | :---: | :--- | :--- |
+| `id` | `UUID` | No | `uuid_generate_v4()` | Identificador único del evento de descarga. |
+| `campaign_id` | `UUID` | No | - | Referencia foránea a la campaña (`ON DELETE CASCADE`). |
+| `download_type`| `download_type`| No | - | Tipo descargado (`IMAGE_1_1`, `IMAGE_9_16`, `ZIP_BUNDLE`). |
+| `downloaded_at`| `TIMESTAMPTZ(6)`| No | `now()` | Fecha y hora UTC de la descarga. |
+| `ip_hash` | `VARCHAR(64)` | Sí | `null` | Hash SHA-256 de la IP del cliente (anonimización por privacidad). |
+
+---
+
+### 4.5. Enumeraciones del Sistema (Enums)
 
 #### `campaign_status`
 * **`DRAFT`:** Pedido creado durante el paso de previsualización con QR generado. Pendiente de confirmación.

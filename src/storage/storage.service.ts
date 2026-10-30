@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { calculateHash } from '../campaign/utils/hash.util.js';
 
 @Injectable()
 export class StorageService {
@@ -30,6 +31,51 @@ export class StorageService {
    */
   setCustomClient(client: SupabaseClient): void {
     this.supabase = client;
+  }
+
+  /**
+   * Descarga el buffer de un archivo existente en el bucket de Storage.
+   * Retorna null si no existe o hay error.
+   */
+  async downloadFile(path: string): Promise<Buffer | null> {
+    if (!this.supabase) {
+      throw new Error(
+        'El cliente de Supabase Storage no está configurado (faltan variables de entorno).',
+      );
+    }
+
+    try {
+      const { data, error } = await this.supabase.storage
+        .from(this.bucketName)
+        .download(path);
+
+      if (error || !data) {
+        return null;
+      }
+
+      const arrayBuffer = await data.arrayBuffer();
+      return Buffer.from(arrayBuffer);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`No se pudo descargar '${path}' de Storage: ${message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Comprueba si el archivo en Storage ya existe y contiene exactamente los mismos bytes (comparando hashes).
+   */
+  async isSameFile(path: string, newBuffer: Buffer): Promise<boolean> {
+    const existing = await this.downloadFile(path);
+    if (!existing) {
+      return false;
+    }
+
+    if (existing.length !== newBuffer.length) {
+      return false;
+    }
+
+    return calculateHash(existing) === calculateHash(newBuffer);
   }
 
   /**

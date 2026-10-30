@@ -7,7 +7,9 @@ import {
   HttpStatus,
   Param,
   Post,
+  Req,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import { CampaignService } from './campaign.service.js';
 import { CampaignAssetsResponseDto } from './dto/campaign-assets-response.dto.js';
 import { CampaignResponseDto } from './dto/campaign-response.dto.js';
@@ -41,8 +43,9 @@ export class CampaignController {
   }
 
   /**
-   * Endpoint para registrar las placas gráficas generadas en el frontend (US-03, US-04).
-   * Almacena las imágenes en Supabase Storage y persiste las referencias en la tabla campaign_asset.
+   * Endpoint para registrar y confirmar placas gráficas generadas en el frontend (US-03, US-04, US-07).
+   * Almacena las imágenes en Supabase Storage, persiste o actualiza en campaign_asset,
+   * confirma el pedido (DRAFT -> ACTIVE) y registra eventos en download_log.
    * Requiere el editToken para validar que la petición provenga del creador del borrador.
    */
   @Post(':id/assets')
@@ -50,6 +53,7 @@ export class CampaignController {
   async uploadAssets(
     @Param('id') id: string,
     @Body() uploadAssetsDto: UploadCampaignAssetsDto,
+    @Req() req: Request,
   ): Promise<CampaignAssetsResponseDto> {
     if (!UUID_V4_REGEX.test(id)) {
       throw new BadRequestException(
@@ -57,7 +61,16 @@ export class CampaignController {
       );
     }
 
-    const assets = await this.campaignService.uploadAssets(id, uploadAssetsDto);
+    const clientIp =
+      (req.headers?.['x-forwarded-for'] as string)?.split(',')[0].trim() ||
+      req.ip ||
+      req.socket?.remoteAddress;
+
+    const assets = await this.campaignService.uploadAssets(
+      id,
+      uploadAssetsDto,
+      clientIp,
+    );
 
     return {
       success: true,

@@ -322,6 +322,22 @@ describe('CampaignController (e2e) - US-01 / ST-03, ST-04, ST-05', () => {
       expect(response.body.data[0].imageUrl).toContain('square_1_1.png');
       expect(response.body.data[1].imageUrl).toContain('story_9_16.png');
 
+      // Validar que la campaña pasó definitivamente de DRAFT a ACTIVE (US-07)
+      const campaignInDb = await prisma.campaign.findUnique({
+        where: { id: createdCampaign.id },
+      });
+      expect(campaignInDb?.status).toBe('ACTIVE');
+
+      // Validar que se registraron los eventos en download_log (US-07)
+      const logs = await prisma.download_log.findMany({
+        where: { campaign_id: createdCampaign.id },
+      });
+      expect(logs.length).toBeGreaterThanOrEqual(2);
+      const downloadTypes = logs.map((l) => l.download_type);
+      expect(downloadTypes).toContain('IMAGE_1_1');
+      expect(downloadTypes).toContain('IMAGE_9_16');
+      expect(logs[0].ip_hash).toBeDefined();
+
       // Validar que ahora la consulta pública incluya los assets
       const getResponse = await request(app.getHttpServer())
         .get(`/campaigns/${createdCampaign.id}`)
@@ -329,6 +345,65 @@ describe('CampaignController (e2e) - US-01 / ST-03, ST-04, ST-05', () => {
 
       expect(getResponse.body.data.assets).toBeDefined();
       expect(getResponse.body.data.assets).toHaveLength(2);
+      expect(getResponse.body.data.status).toBe('ACTIVE');
+    });
+
+    it('debe confirmar y registrar descarga de una placa existente sin reenviar base64 (US-07)', async () => {
+      const payload = {
+        editToken: createdCampaign.editToken,
+        assets: [
+          {
+            format: 'SQUARE_1_1',
+          },
+        ],
+      };
+
+      const response = await request(app.getHttpServer())
+        .post(`/campaigns/${createdCampaign.id}/assets`)
+        .send(payload)
+        .expect(201);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.data).toHaveLength(1);
+      expect(response.body.data[0].format).toBe('SQUARE_1_1');
+
+      // Verificar que se haya registrado un log adicional de descarga
+      const logs = await prisma.download_log.findMany({
+        where: { campaign_id: createdCampaign.id, download_type: 'IMAGE_1_1' },
+      });
+      expect(logs.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it('debe rechazar con 400 Bad Request si se solicita confirmar una placa sin base64 y no existe previamente', async () => {
+      const createRes = await request(app.getHttpServer())
+        .post('/campaigns')
+        .send({
+          patientName: 'Prueba Sin Placas',
+          institutionId: testInstitutionId,
+          bloodType: 'B+',
+        })
+        .expect(201);
+
+      const newCampaignId = createRes.body.data.id;
+      const newEditToken = createRes.body.data.editToken;
+      createdCampaignIds.push(newCampaignId);
+
+      const response = await request(app.getHttpServer())
+        .post(`/campaigns/${newCampaignId}/assets`)
+        .send({
+          editToken: newEditToken,
+          assets: [
+            {
+              format: 'SQUARE_1_1',
+            },
+          ],
+        })
+        .expect(400);
+
+      expect(response.body.statusCode).toBe(400);
+      expect(response.body.message).toContain(
+        "No se encontró una placa previa para el formato 'SQUARE_1_1'",
+      );
     });
 
     it('debe rechazar la subida de placas si el editToken es incorrecto (403 Forbidden)', async () => {

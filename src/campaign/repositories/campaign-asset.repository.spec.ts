@@ -87,6 +87,22 @@ describe('CampaignAssetRepository', () => {
     expect(result.imageUrl).toBe('https://storage/new.png');
   });
 
+  it('debe buscar un asset por formato y campaña', async () => {
+    mockPrisma.campaign_asset.findFirst.mockResolvedValue({
+      id: 'asset-1',
+      campaign_id: 'campaign-1',
+      format: 'SQUARE_1_1',
+      image_url: 'https://storage/1.png',
+      width: 1080,
+      height: 1080,
+      created_at: new Date(),
+    });
+
+    const result = await repository.findByCampaignAndFormat('campaign-1', 'SQUARE_1_1');
+    expect(result).not.toBeNull();
+    expect(result?.format).toBe('SQUARE_1_1');
+  });
+
   it('debe retornar todos los assets de una campaña', async () => {
     mockPrisma.campaign_asset.findMany.mockResolvedValue([
       {
@@ -105,4 +121,3 @@ describe('CampaignAssetRepository', () => {
     expect(results[0].format).toBe('SQUARE_1_1');
   });
 });
-

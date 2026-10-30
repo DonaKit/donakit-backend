@@ -62,6 +62,23 @@ export class CampaignAssetRepository {
   }
 
   /**
+   * Busca un asset específico por campaña y formato.
+   */
+  async findByCampaignAndFormat(
+    campaignId: string,
+    format: asset_format,
+  ): Promise<CampaignAssetEntity | null> {
+    const record = await this.prisma.campaign_asset.findFirst({
+      where: {
+        campaign_id: campaignId,
+        format,
+      },
+    });
+
+    return record ? this.mapToEntity(record) : null;
+  }
+
+  /**
    * Obtiene todos los assets pertenecientes a una campaña.
    */
   async findByCampaignId(campaignId: string): Promise<CampaignAssetEntity[]> {
@@ -93,4 +110,3 @@ export class CampaignAssetRepository {
     });
   }
 }
-
