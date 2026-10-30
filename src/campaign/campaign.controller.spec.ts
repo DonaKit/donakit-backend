@@ -52,6 +52,7 @@ describe('CampaignController', () => {
 
   describe('uploadAssets', () => {
     const validUuid = '63a65bfe-3c92-484e-b658-d3446355e5c2';
+    const mockReq = { headers: {}, ip: '192.168.1.1' } as any;
     const uploadDto: UploadCampaignAssetsDto = {
       editToken: 'secret-token-123',
       assets: [
@@ -77,9 +78,9 @@ describe('CampaignController', () => {
 
       mockService.uploadAssets.mockResolvedValue(mockAssets);
 
-      const response = await controller.uploadAssets(validUuid, uploadDto);
+      const response = await controller.uploadAssets(validUuid, uploadDto, mockReq);
 
-      expect(mockService.uploadAssets).toHaveBeenCalledWith(validUuid, uploadDto);
+      expect(mockService.uploadAssets).toHaveBeenCalledWith(validUuid, uploadDto, '192.168.1.1');
       expect(response.success).toBe(true);
       expect(response.message).toBe('Placas del pedido registradas y almacenadas exitosamente.');
       expect(response.data).toEqual(mockAssets);
@@ -87,7 +88,7 @@ describe('CampaignController', () => {
 
     it('debe lanzar BadRequestException si el parámetro ID no es un UUID v4 válido', async () => {
       await expect(
-        controller.uploadAssets('invalid-id', uploadDto),
+        controller.uploadAssets('invalid-id', uploadDto, mockReq),
       ).rejects.toThrow(BadRequestException);
       expect(mockService.uploadAssets).not.toHaveBeenCalled();
     });

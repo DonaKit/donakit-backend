@@ -122,6 +122,32 @@ export class CampaignRepository implements ICampaignRepository {
   }
 
   /**
+   * Actualiza el estado de una campaña (ej. de DRAFT a ACTIVE al confirmar).
+   */
+  async updateStatus(
+    id: string,
+    status: Prisma.campaignUpdateInput['status'],
+  ): Promise<CampaignEntity> {
+    const updated = await this.prisma.campaign.update({
+      where: { id },
+      data: { status },
+      include: {
+        institution: {
+          select: {
+            id: true,
+            name: true,
+            address: true,
+            city: true,
+          },
+        },
+        campaign_asset: true,
+      },
+    });
+
+    return this.mapToEntity(updated);
+  }
+
+  /**
    * Mapea un registro raw de Prisma al modelo de dominio CampaignEntity.
    */
   private mapToEntity(record: any): CampaignEntity {

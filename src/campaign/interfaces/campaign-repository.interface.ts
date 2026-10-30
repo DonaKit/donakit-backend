@@ -24,4 +24,5 @@ export interface ICampaignRepository {
   findBySlug(slug: string): Promise<CampaignEntity | null>;
   institutionExists(institutionId: string): Promise<boolean>;
   getInstitutionById(institutionId: string): Promise<InstitutionRecord | null>;
+  updateStatus(id: string, status: campaign_status): Promise<CampaignEntity>;
 }

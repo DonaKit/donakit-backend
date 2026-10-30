@@ -13,6 +13,7 @@ describe('StorageService', () => {
           getPublicUrl: vi.fn().mockReturnValue({
             data: { publicUrl: 'https://example.supabase.co/storage/v1/object/public/campaign-assets/test.png' },
           }),
+          download: vi.fn(),
         }),
       },
     };
@@ -39,5 +40,38 @@ describe('StorageService', () => {
 
     const buffer = Buffer.from('fake-png-content');
     await expect(service.uploadFile('test.png', buffer)).rejects.toThrow('Bucket not found');
+  });
+
+  it('isSameFile debe retornar true si el archivo existe en storage y tiene el mismo contenido', async () => {
+    const buffer = Buffer.from('identical-content');
+    const exactArrayBuffer = buffer.buffer.slice(
+      buffer.byteOffset,
+      buffer.byteOffset + buffer.byteLength,
+    );
+
+    mockSupabase.storage.from.mockReturnValue({
+      download: vi.fn().mockResolvedValue({
+        data: {
+          arrayBuffer: () => Promise.resolve(exactArrayBuffer),
+        },
+        error: null,
+      }),
+    });
+
+    const result = await service.isSameFile('test.png', buffer);
+    expect(result).toBe(true);
+  });
+
+  it('isSameFile debe retornar false si el archivo no existe o difiere en contenido', async () => {
+    const buffer = Buffer.from('new-content');
+    mockSupabase.storage.from.mockReturnValue({
+      download: vi.fn().mockResolvedValue({
+        data: null,
+        error: new Error('Not found'),
+      }),
+    });
+
+    const result = await service.isSameFile('test.png', buffer);
+    expect(result).toBe(false);
   });
 });
