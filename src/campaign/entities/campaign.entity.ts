@@ -1,4 +1,5 @@
 import type { campaign_status } from '@prisma/client';
+import type { CampaignAssetEntity } from './campaign-asset.entity.js';
 
 export class InstitutionSummary {
   id: string;
@@ -24,6 +25,7 @@ export class CampaignEntity {
   createdAt: Date;
   updatedAt: Date;
   institution?: InstitutionSummary;
+  assets?: CampaignAssetEntity[];
 
   constructor(partial: Partial<CampaignEntity>) {
     Object.assign(this, partial);
@@ -45,6 +47,7 @@ export class CampaignEntity {
       createdAt: this.createdAt,
       updatedAt: this.updatedAt,
       institution: this.institution,
+      assets: this.assets ?? [],
     };
   }
 }

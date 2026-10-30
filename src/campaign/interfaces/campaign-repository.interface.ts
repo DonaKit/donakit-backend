@@ -1,4 +1,7 @@
-import type { institution as InstitutionRecord } from '@prisma/client';
+import type {
+  campaign_status,
+  institution as InstitutionRecord,
+} from '@prisma/client';
 import type { CampaignEntity } from '../entities/campaign.entity.js';
 
 export interface CreateCampaignData {
@@ -12,6 +15,7 @@ export interface CreateCampaignData {
   targetDonors?: number;
   deadline?: Date;
   observations?: string;
+  status?: campaign_status;
 }
 
 export interface ICampaignRepository {

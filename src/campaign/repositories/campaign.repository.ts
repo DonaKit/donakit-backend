@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service.js';
+import { CampaignAssetEntity } from '../entities/campaign-asset.entity.js';
 import { CampaignEntity } from '../entities/campaign.entity.js';
 import type {
   CreateCampaignData,
@@ -27,6 +28,7 @@ export class CampaignRepository implements ICampaignRepository {
       target_donors: data.targetDonors ?? null,
       deadline: data.deadline ?? null,
       observations: data.observations ?? null,
+      status: data.status ?? 'DRAFT',
       institution: {
         connect: { id: data.institutionId },
       },
@@ -67,6 +69,7 @@ export class CampaignRepository implements ICampaignRepository {
             city: true,
           },
         },
+        campaign_asset: true,
       },
     });
 
@@ -88,6 +91,7 @@ export class CampaignRepository implements ICampaignRepository {
             city: true,
           },
         },
+        campaign_asset: true,
       },
     });
 
@@ -120,20 +124,7 @@ export class CampaignRepository implements ICampaignRepository {
   /**
    * Mapea un registro raw de Prisma al modelo de dominio CampaignEntity.
    */
-  private mapToEntity(
-    record: Prisma.campaignGetPayload<{
-      include: {
-        institution: {
-          select: {
-            id: true;
-            name: true;
-            address: true;
-            city: true;
-          };
-        };
-      };
-    }>,
-  ): CampaignEntity {
+  private mapToEntity(record: any): CampaignEntity {
     return new CampaignEntity({
       id: record.id,
       slug: record.slug,
@@ -157,6 +148,20 @@ export class CampaignRepository implements ICampaignRepository {
             address: record.institution.address,
             city: record.institution.city,
           }
+        : undefined,
+      assets: Array.isArray(record.campaign_asset)
+        ? record.campaign_asset.map(
+            (a: any) =>
+              new CampaignAssetEntity({
+                id: a.id,
+                campaignId: a.campaign_id,
+                format: a.format,
+                imageUrl: a.image_url,
+                width: a.width,
+                height: a.height,
+                createdAt: a.created_at,
+              }),
+          )
         : undefined,
     });
   }
