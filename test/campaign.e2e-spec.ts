@@ -3,11 +3,12 @@ import type { INestApplication } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 import type { App } from 'supertest/types.js';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { AppModule } from '../src/app.module.js';
 import { DatabaseExceptionFilter } from '../src/common/filters/database-exception.filter.js';
 import { validationExceptionFactory } from '../src/common/filters/validation-exception.factory.js';
 import { PrismaService } from '../src/database/prisma.service.js';
+import { StorageService } from '../src/storage/storage.service.js';
 
 describe('CampaignController (e2e) - US-01 / ST-03, ST-04, ST-05', () => {
   let app: INestApplication<App>;
@@ -18,7 +19,16 @@ describe('CampaignController (e2e) - US-01 / ST-03, ST-04, ST-05', () => {
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      .overrideProvider(StorageService)
+      .useValue({
+        uploadFile: vi.fn().mockImplementation((path: string) => {
+          return Promise.resolve(
+            `https://mock-storage.supabase.co/campaign-assets/${path}`,
+          );
+        }),
+      })
+      .compile();
 
     app = moduleFixture.createNestApplication();
 
@@ -204,6 +214,7 @@ describe('CampaignController (e2e) - US-01 / ST-03, ST-04, ST-05', () => {
       expect(data.targetDonors).toBe(15);
       expect(data.institution).toBeDefined();
       expect(data.institution.id).toBe(testInstitutionId);
+      expect(data.status).toBe('DRAFT');
 
       createdCampaign = data;
       createdCampaignIds.push(data.id);
@@ -276,6 +287,111 @@ describe('CampaignController (e2e) - US-01 / ST-03, ST-04, ST-05', () => {
       expect(response.body.data.institution.name).toBeDefined();
       expect(response.body.data.editToken).toBeUndefined();
       expect(response.body.data.slug).toBeUndefined();
+    });
+
+    it('debe registrar y subir las placas generadas en el frontend (POST /campaigns/:id/assets)', async () => {
+      const samplePng =
+        'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+
+      const payload = {
+        editToken: createdCampaign.editToken,
+        assets: [
+          {
+            format: 'SQUARE_1_1',
+            imageBase64: samplePng,
+            width: 1080,
+            height: 1080,
+          },
+          {
+            format: 'STORY_9_16',
+            imageBase64: samplePng,
+            width: 1080,
+            height: 1920,
+          },
+        ],
+      };
+
+      const response = await request(app.getHttpServer())
+        .post(`/campaigns/${createdCampaign.id}/assets`)
+        .send(payload)
+        .expect(201);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.message).toContain('registradas y almacenadas exitosamente');
+      expect(response.body.data).toHaveLength(2);
+      expect(response.body.data[0].imageUrl).toContain('square_1_1.png');
+      expect(response.body.data[1].imageUrl).toContain('story_9_16.png');
+
+      // Validar que ahora la consulta pública incluya los assets
+      const getResponse = await request(app.getHttpServer())
+        .get(`/campaigns/${createdCampaign.id}`)
+        .expect(200);
+
+      expect(getResponse.body.data.assets).toBeDefined();
+      expect(getResponse.body.data.assets).toHaveLength(2);
+    });
+
+    it('debe rechazar la subida de placas si el editToken es incorrecto (403 Forbidden)', async () => {
+      const samplePng =
+        'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+
+      await request(app.getHttpServer())
+        .post(`/campaigns/${createdCampaign.id}/assets`)
+        .send({
+          editToken: 'token-incorrecto-123',
+          assets: [
+            {
+              format: 'SQUARE_1_1',
+              imageBase64: samplePng,
+            },
+          ],
+        })
+        .expect(403);
+    });
+
+    it('debe rechazar con 400 Bad Request si el cuerpo de la petición va completamente vacío', async () => {
+      const response = await request(app.getHttpServer())
+        .post(`/campaigns/${createdCampaign.id}/assets`)
+        .send({})
+        .expect(400);
+
+      expect(response.body.statusCode).toBe(400);
+      expect(response.body.error).toBe('Bad Request');
+      expect(response.body.errors.editToken).toBeDefined();
+      expect(response.body.errors.assets).toBeDefined();
+    });
+
+    it('debe rechazar con 400 Bad Request si la lista de assets está vacía', async () => {
+      const response = await request(app.getHttpServer())
+        .post(`/campaigns/${createdCampaign.id}/assets`)
+        .send({
+          editToken: createdCampaign.editToken,
+          assets: [],
+        })
+        .expect(400);
+
+      expect(response.body.statusCode).toBe(400);
+      expect(response.body.errors.assets[0]).toContain(
+        'Debe enviarse al menos una placa',
+      );
+    });
+
+    it('debe rechazar con 400 Bad Request si una placa no tiene imagen base64', async () => {
+      const response = await request(app.getHttpServer())
+        .post(`/campaigns/${createdCampaign.id}/assets`)
+        .send({
+          editToken: createdCampaign.editToken,
+          assets: [
+            {
+              format: 'SQUARE_1_1',
+              imageBase64: '',
+            },
+          ],
+        })
+        .expect(400);
+
+      expect(response.body.statusCode).toBe(400);
+      expect(response.body.errors['assets.0.imageBase64']).toBeDefined();
     });
   });
 });

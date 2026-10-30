@@ -1,7 +1,10 @@
+import { BadRequestException } from '@nestjs/common';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CampaignController } from './campaign.controller.js';
 import { CampaignService } from './campaign.service.js';
 import type { CreateCampaignDto } from './dto/create-campaign.dto.js';
+import type { UploadCampaignAssetsDto } from './dto/upload-campaign-assets.dto.js';
+import { CampaignAssetEntity } from './entities/campaign-asset.entity.js';
 import { CampaignEntity } from './entities/campaign.entity.js';
 
 describe('CampaignController', () => {
@@ -12,6 +15,7 @@ describe('CampaignController', () => {
     create: vi.fn(),
     findById: vi.fn(),
     findBySlug: vi.fn(),
+    uploadAssets: vi.fn(),
   };
 
   beforeEach(() => {
@@ -43,6 +47,49 @@ describe('CampaignController', () => {
       expect(response.success).toBe(true);
       expect(response.message).toBe('Pedido de donación creado exitosamente.');
       expect(response.data).toBe(mockCampaign);
+    });
+  });
+
+  describe('uploadAssets', () => {
+    const validUuid = '63a65bfe-3c92-484e-b658-d3446355e5c2';
+    const uploadDto: UploadCampaignAssetsDto = {
+      editToken: 'secret-token-123',
+      assets: [
+        {
+          format: 'SQUARE_1_1',
+          imageBase64: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+        },
+      ],
+    };
+
+    it('debe registrar y retornar los assets asociados a la campaña', async () => {
+      const mockAssets = [
+        new CampaignAssetEntity({
+          id: 'asset-1',
+          campaignId: validUuid,
+          format: 'SQUARE_1_1',
+          imageUrl: 'https://example.com/asset.png',
+          width: 1080,
+          height: 1080,
+          createdAt: new Date(),
+        }),
+      ];
+
+      mockService.uploadAssets.mockResolvedValue(mockAssets);
+
+      const response = await controller.uploadAssets(validUuid, uploadDto);
+
+      expect(mockService.uploadAssets).toHaveBeenCalledWith(validUuid, uploadDto);
+      expect(response.success).toBe(true);
+      expect(response.message).toBe('Placas del pedido registradas y almacenadas exitosamente.');
+      expect(response.data).toEqual(mockAssets);
+    });
+
+    it('debe lanzar BadRequestException si el parámetro ID no es un UUID v4 válido', async () => {
+      await expect(
+        controller.uploadAssets('invalid-id', uploadDto),
+      ).rejects.toThrow(BadRequestException);
+      expect(mockService.uploadAssets).not.toHaveBeenCalled();
     });
   });
 

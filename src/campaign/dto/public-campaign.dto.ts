@@ -1,4 +1,5 @@
 import type { campaign_status } from '@prisma/client';
+import type { CampaignAssetEntity } from '../entities/campaign-asset.entity.js';
 import type { InstitutionSummary } from '../entities/campaign.entity.js';
 
 export class PublicCampaignDto {
@@ -16,6 +17,7 @@ export class PublicCampaignDto {
   createdAt: Date;
   updatedAt: Date;
   institution?: InstitutionSummary;
+  assets?: CampaignAssetEntity[];
 }
 
 export class PublicCampaignResponseDto {

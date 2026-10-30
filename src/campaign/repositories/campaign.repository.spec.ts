@@ -37,7 +37,7 @@ describe('CampaignRepository', () => {
         deadline: null,
         observations: null,
         generated_copy: null,
-        status: 'ACTIVE',
+        status: 'DRAFT',
         created_at: new Date(),
         updated_at: new Date(),
         institution: {
