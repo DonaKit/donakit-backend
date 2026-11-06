@@ -469,4 +469,221 @@ describe('CampaignController (e2e) - US-01 / ST-03, ST-04, ST-05', () => {
       expect(response.body.errors['assets.0.imageBase64']).toBeDefined();
     });
   });
+
+  describe('Modificación de datos del pedido y validación de editToken (US-09)', () => {
+    let testCampaign: any;
+
+    beforeAll(async () => {
+      // Creamos una campaña borrador específica para las pruebas de US-09
+      const res = await request(app.getHttpServer())
+        .post('/campaigns')
+        .send({
+          patientName: 'Mariana López',
+          institutionId: testInstitutionId,
+          bloodType: '0+',
+          donationType: 'Sangre entera',
+          targetDonors: 10,
+          observations: 'Primera versión de observaciones.',
+        })
+        .expect(201);
+
+      testCampaign = res.body.data;
+      createdCampaignIds.push(testCampaign.id);
+    });
+
+    it('debe validar correctamente el editToken con POST /campaigns/:id/verify-token', async () => {
+      const response = await request(app.getHttpServer())
+        .post(`/campaigns/${testCampaign.id}/verify-token`)
+        .send({ editToken: testCampaign.editToken })
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.message).toContain('validado exitosamente');
+      expect(response.body.data.id).toBe(testCampaign.id);
+      expect(response.body.data.patientName).toBe('Mariana López');
+      expect(response.body.data.editToken).toBe(testCampaign.editToken);
+    });
+
+    it('debe rechazar con 403 Forbidden la verificación si el editToken es inválido', async () => {
+      await request(app.getHttpServer())
+        .post(`/campaigns/${testCampaign.id}/verify-token`)
+        .send({ editToken: 'token-invalido-xyz' })
+        .expect(403);
+    });
+
+    it('debe permitir obtener el pedido completo en modo edición con GET /campaigns/:id?editToken=...', async () => {
+      const response = await request(app.getHttpServer())
+        .get(`/campaigns/${testCampaign.id}?editToken=${testCampaign.editToken}`)
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.id).toBe(testCampaign.id);
+      expect(response.body.data.editToken).toBe(testCampaign.editToken);
+      expect(response.body.data.slug).toBe(testCampaign.slug);
+    });
+
+    it('debe rechazar con 403 Forbidden en GET /campaigns/:id si el query param editToken es inválido', async () => {
+      await request(app.getHttpServer())
+        .get(`/campaigns/${testCampaign.id}?editToken=token-falso`)
+        .expect(403);
+    });
+
+    it('debe actualizar los datos del pedido con PATCH /campaigns/:id (modificando paciente, grupo y regenerando slug)', async () => {
+      const payload = {
+        editToken: testCampaign.editToken,
+        patientName: 'Mariana Andrea López',
+        bloodType: 'A-',
+        donationType: 'Plasma',
+        targetDonors: 20,
+        observations: 'Observaciones corregidas en el formulario.',
+        generatedCopy: 'Texto publicitario actualizado para compartir en WhatsApp.',
+      };
+
+      const response = await request(app.getHttpServer())
+        .patch(`/campaigns/${testCampaign.id}`)
+        .send(payload)
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.message).toContain('actualizado exitosamente');
+
+      const updated = response.body.data;
+      expect(updated.id).toBe(testCampaign.id);
+      expect(updated.patientName).toBe('Mariana Andrea López');
+      expect(updated.bloodType).toBe('A-');
+      expect(updated.donationType).toBe('Plasma');
+      expect(updated.targetDonors).toBe(20);
+      expect(updated.observations).toBe('Observaciones corregidas en el formulario.');
+      expect(updated.generatedCopy).toBe('Texto publicitario actualizado para compartir en WhatsApp.');
+      // Al cambiar el nombre del paciente, el slug debe regenerarse con el nuevo nombre
+      expect(updated.slug).toMatch(/^donantes-mariana-andrea-lopez-[a-f0-9]{6}$/);
+      expect(updated.slug).not.toBe(testCampaign.slug);
+
+      testCampaign = updated;
+    });
+
+    it('debe soportar nombres de campo snake_case en PATCH /campaigns/:id', async () => {
+      const payload = {
+        edit_token: testCampaign.editToken,
+        blood_type: 'B+',
+        donation_type: 'Plaquetas',
+        target_donors: 12,
+      };
+
+      const response = await request(app.getHttpServer())
+        .patch(`/campaigns/${testCampaign.id}`)
+        .send(payload)
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.bloodType).toBe('B+');
+      expect(response.body.data.donationType).toBe('Plaquetas');
+      expect(response.body.data.targetDonors).toBe(12);
+    });
+
+    it('debe rechazar PATCH /campaigns/:id con 403 Forbidden si el editToken es inválido', async () => {
+      await request(app.getHttpServer())
+        .patch(`/campaigns/${testCampaign.id}`)
+        .send({
+          editToken: 'token-erroneo-999',
+          patientName: 'Intento Hack',
+        })
+        .expect(403);
+    });
+
+    it('debe rechazar PATCH /campaigns/:id con 400 Bad Request si el nombre del paciente contiene números', async () => {
+      const response = await request(app.getHttpServer())
+        .patch(`/campaigns/${testCampaign.id}`)
+        .send({
+          editToken: testCampaign.editToken,
+          patientName: 'Mariana 123',
+        })
+        .expect(400);
+
+      expect(response.body.statusCode).toBe(400);
+      expect(response.body.errors.patientName[0]).toContain('no se permiten números');
+    });
+
+    it('debe rechazar PATCH /campaigns/:id con 400 Bad Request si el grupo sanguíneo es inválido', async () => {
+      const response = await request(app.getHttpServer())
+        .patch(`/campaigns/${testCampaign.id}`)
+        .send({
+          editToken: testCampaign.editToken,
+          bloodType: 'X_INVALID',
+        })
+        .expect(400);
+
+      expect(response.body.statusCode).toBe(400);
+      expect(response.body.errors.bloodType[0]).toContain('formatos válidos');
+    });
+
+    it('debe registrar y actualizar las nuevas placas y texto generado en POST /campaigns/:id/assets tras haber editado el pedido', async () => {
+      const samplePng =
+        'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+
+      const payload = {
+        editToken: testCampaign.editToken,
+        generatedCopy: 'Copy final confirmado tras edición.',
+        assets: [
+          {
+            format: 'SQUARE_1_1',
+            imageBase64: samplePng,
+          },
+        ],
+      };
+
+      const response = await request(app.getHttpServer())
+        .post(`/campaigns/${testCampaign.id}/assets`)
+        .send(payload)
+        .expect(201);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.data).toHaveLength(1);
+
+      // Verificar en base de datos que se haya guardado el generated_copy y la placa
+      const updatedCampaignInDb = await prisma.campaign.findUnique({
+        where: { id: testCampaign.id },
+        include: { campaign_asset: true },
+      });
+      expect(updatedCampaignInDb?.generated_copy).toBe(
+        'Copy final confirmado tras edición.',
+      );
+      expect(updatedCampaignInDb?.status).toBe('ACTIVE');
+      expect(updatedCampaignInDb?.campaign_asset).toHaveLength(1);
+    });
+
+    it('debe registrar un evento de tipo ZIP_BUNDLE en download_log si se envía downloadType: "ZIP_BUNDLE" (US-08)', async () => {
+      const samplePng =
+        'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+
+      const payload = {
+        editToken: testCampaign.editToken,
+        downloadType: 'ZIP_BUNDLE',
+        assets: [
+          {
+            format: 'STORY_9_16',
+            imageBase64: samplePng,
+          },
+        ],
+      };
+
+      const response = await request(app.getHttpServer())
+        .post(`/campaigns/${testCampaign.id}/assets`)
+        .send(payload)
+        .expect(201);
+
+      expect(response.body.success).toBe(true);
+
+      const logs = await prisma.download_log.findMany({
+        where: {
+          campaign_id: testCampaign.id,
+          download_type: 'ZIP_BUNDLE',
+        },
+      });
+
+      expect(logs.length).toBeGreaterThanOrEqual(1);
+      expect(logs[0].download_type).toBe('ZIP_BUNDLE');
+      expect(logs[0].ip_hash).toBeDefined();
+    });
+  });
 });

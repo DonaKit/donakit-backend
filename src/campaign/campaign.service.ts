@@ -10,6 +10,7 @@ import type { asset_format, download_type } from '@prisma/client';
 import { InstitutionNotFoundException } from '../common/exceptions/institution-not-found.exception.js';
 import { StorageService } from '../storage/storage.service.js';
 import type { CreateCampaignDto } from './dto/create-campaign.dto.js';
+import type { UpdateCampaignDto } from './dto/update-campaign.dto.js';
 import type { UploadCampaignAssetsDto } from './dto/upload-campaign-assets.dto.js';
 import { CampaignAssetEntity } from './entities/campaign-asset.entity.js';
 import { CampaignEntity } from './entities/campaign.entity.js';
@@ -34,7 +35,7 @@ export class CampaignService {
     private readonly campaignAssetRepository: CampaignAssetRepository,
     private readonly downloadLogRepository: DownloadLogRepository,
     private readonly storageService: StorageService,
-  ) {}
+  ) { }
 
   /**
    * Crea un nuevo pedido básico de donación persistiendo en Supabase con UUID y slug único.
@@ -80,6 +81,7 @@ export class CampaignService {
       targetDonors: dto.targetDonors,
       deadline: deadlineDate,
       observations: dto.observations,
+      generatedCopy: dto.generatedCopy,
     });
 
     this.logger.log(
@@ -109,6 +111,111 @@ export class CampaignService {
     if (!campaign) {
       throw new NotFoundException(
         `No se encontró el pedido de donación con slug '${slug}'.`,
+      );
+    }
+    return campaign;
+  }
+
+  /**
+   * Actualiza los datos de un pedido de donación tras correcciones en el formulario (US-09).
+   *
+   * Controla:
+   * 1. Existencia del pedido y validación estricta de editToken (403 Forbidden si no coincide).
+   * 2. Que la campaña no esté cancelada (400 Bad Request si está CANCELLED).
+   * 3. Que la institución exista y esté activa si fue modificada.
+   * 4. Si el nombre del paciente cambió, regenera el slug para mantener consistencia con URLs y QR.
+   * 5. Actualiza los campos especificados y devuelve la entidad completa actualizada.
+   */
+  async update(id: string, dto: UpdateCampaignDto): Promise<CampaignEntity> {
+    this.logger.log(`Iniciando actualización de pedido con ID '${id}' (US-09)`);
+
+    // 1. Obtener campaña existente y validar existencia
+    const campaign = await this.findById(id);
+
+    // 2. Validar que el editToken coincida
+    if (campaign.editToken !== dto.editToken) {
+      this.logger.warn(
+        `Intento no autorizado de editar campaña '${id}'. Token incorrecto.`,
+      );
+      throw new ForbiddenException(
+        'El token de edición proporcionado no es válido para esta campaña.',
+      );
+    }
+
+    // 3. Validar estado de la campaña
+    if (campaign.status === 'CANCELLED') {
+      throw new BadRequestException(
+        'No se puede modificar un pedido de donación que ha sido cancelado.',
+      );
+    }
+
+    // 4. Validar institución si fue provista y difiere de la actual
+    if (dto.institutionId && dto.institutionId !== campaign.institutionId) {
+      const institutionExists = await this.campaignRepository.institutionExists(
+        dto.institutionId,
+      );
+      if (!institutionExists) {
+        this.logger.warn(
+          `Institución con ID '${dto.institutionId}' no existe o está inactiva.`,
+        );
+        throw new InstitutionNotFoundException(dto.institutionId);
+      }
+    }
+
+    // 5. Si cambió el nombre del paciente, regenerar el slug único
+    let newSlug: string | undefined = undefined;
+    if (dto.patientName && dto.patientName !== campaign.patientName) {
+      newSlug = await this.generateUniqueSlug(dto.patientName);
+      this.logger.log(
+        `Nombre de paciente modificado. Nuevo slug generado: '${newSlug}'`,
+      );
+    }
+
+    // 6. Normalizar deadline si fue provisto
+    let deadlineDate: Date | null | undefined = undefined;
+    if (dto.deadline !== undefined) {
+      if (dto.deadline === null) {
+        deadlineDate = null;
+      } else {
+        const parsed = new Date(dto.deadline);
+        if (Number.isNaN(parsed.getTime())) {
+          throw new BadRequestException(
+            'Formato de fecha inválido para la fecha límite (deadline).',
+          );
+        }
+        deadlineDate = parsed;
+      }
+    }
+
+    // 7. Persistir cambios en el repositorio
+    const updated = await this.campaignRepository.update(id, {
+      patientName: dto.patientName,
+      slug: newSlug,
+      institutionId: dto.institutionId,
+      bloodType: dto.bloodType,
+      donationType: dto.donationType,
+      targetDonors: dto.targetDonors,
+      deadline: deadlineDate,
+      observations: dto.observations,
+      generatedCopy: dto.generatedCopy,
+    });
+
+    this.logger.log(`Pedido de donación '${id}' actualizado exitosamente.`);
+    return updated;
+  }
+
+  /**
+   * Valida si un editToken es válido para una campaña dada y devuelve la entidad completa.
+   * Utilizado para verificar autorizaciones y precargar formularios al reingresar.
+   */
+  async verifyEditToken(id: string, editToken: string): Promise<CampaignEntity> {
+    const campaign = await this.findById(id);
+    if (campaign.editToken !== editToken) {
+      this.logger.warn(
+        `Intento de verificación fallido para campaña '${id}'. Token incorrecto.`,
+      );
+      throw new ForbiddenException(
+        'El token de edición proporcionado no es válido para esta campaña.',
       );
     }
     return campaign;
@@ -222,8 +329,8 @@ export class CampaignService {
 
       savedAssets.push(asset);
 
-      // 4. Registrar evento de descarga en download_log si corresponde (US-07/ST-02, ST-03)
-      if (dto.recordDownload !== false) {
+      // 4. Registrar evento de descarga individual en download_log si corresponde (US-07/ST-02, ST-03)
+      if (dto.recordDownload !== false && !dto.downloadType) {
         await this.downloadLogRepository.create({
           campaignId,
           downloadType: ASSET_TO_DOWNLOAD_TYPE[item.format],
@@ -232,7 +339,29 @@ export class CampaignService {
       }
     }
 
-    // 5. Guardar definitivamente el pedido en la plataforma (US-07: DRAFT -> ACTIVE)
+    // Si se especificó un downloadType personalizado (ej. ZIP_BUNDLE), registrar una sola vez
+    if (dto.recordDownload !== false && dto.downloadType) {
+      await this.downloadLogRepository.create({
+        campaignId,
+        downloadType: dto.downloadType,
+        ipHash: hashIp(clientIp),
+      });
+      this.logger.log(
+        `Evento de descarga registrado en download_log: type='${dto.downloadType}' para campaña '${campaignId}'`,
+      );
+    }
+
+    // 5. Guardar texto generado (copy) si se envía junto con las placas
+    if (dto.generatedCopy !== undefined) {
+      await this.campaignRepository.update(campaignId, {
+        generatedCopy: dto.generatedCopy,
+      });
+      this.logger.log(
+        `Texto generado (copy) actualizado para la campaña '${campaignId}'`,
+      );
+    }
+
+    // 6. Guardar definitivamente el pedido en la plataforma (US-07: DRAFT -> ACTIVE)
     if (campaign.status === 'DRAFT') {
       await this.campaignRepository.updateStatus(campaignId, 'ACTIVE');
       this.logger.log(

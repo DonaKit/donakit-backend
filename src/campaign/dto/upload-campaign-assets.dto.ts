@@ -11,9 +11,15 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
-import type { asset_format } from '@prisma/client';
+import type { asset_format, download_type } from '@prisma/client';
 
 export const VALID_ASSET_FORMATS = ['SQUARE_1_1', 'STORY_9_16'] as const;
+export const VALID_DOWNLOAD_TYPES = [
+  'IMAGE_1_1',
+  'IMAGE_9_16',
+  'PDF_KIT',
+  'ZIP_BUNDLE',
+] as const;
 
 export class CampaignAssetItemDto {
   /**
@@ -89,4 +95,33 @@ export class UploadCampaignAssetsDto {
   @IsOptional()
   @IsBoolean({ message: 'recordDownload debe ser un valor booleano.' })
   recordDownload?: boolean;
+
+  /**
+   * Texto publicitario generado automáticamente para redes sociales (copy).
+   * Opcional al subir/confirmar placas.
+   */
+  @Transform(({ obj, value }) => {
+    const val = value ?? obj?.generated_copy;
+    if (val === '' || val === null) return undefined;
+    return typeof val === 'string' ? val.trim() : val;
+  })
+  @IsOptional()
+  @IsString({ message: 'El texto generado (copy) debe ser una cadena de texto.' })
+  generatedCopy?: string;
+
+  /**
+   * Tipo de descarga específico para registrar en download_log (ej. 'ZIP_BUNDLE').
+   * Opcional. Si se provee, registrará ese evento de descarga (como ZIP_BUNDLE)
+   * en lugar de registrar individualmente cada placa de assets.
+   */
+  @Transform(({ obj, value }) => {
+    const val = value ?? obj?.download_type;
+    return typeof val === 'string' ? val.trim().toUpperCase() : val;
+  })
+  @IsOptional()
+  @IsIn(VALID_DOWNLOAD_TYPES, {
+    message:
+      'downloadType debe ser uno de los formatos válidos: IMAGE_1_1, IMAGE_9_16, PDF_KIT o ZIP_BUNDLE.',
+  })
+  downloadType?: download_type;
 }

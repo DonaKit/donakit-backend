@@ -15,6 +15,20 @@ export interface CreateCampaignData {
   targetDonors?: number;
   deadline?: Date;
   observations?: string;
+  generatedCopy?: string;
+  status?: campaign_status;
+}
+
+export interface UpdateCampaignData {
+  patientName?: string;
+  slug?: string;
+  institutionId?: string;
+  bloodType?: string;
+  donationType?: string;
+  targetDonors?: number | null;
+  deadline?: Date | null;
+  observations?: string | null;
+  generatedCopy?: string | null;
   status?: campaign_status;
 }
 
@@ -25,4 +39,5 @@ export interface ICampaignRepository {
   institutionExists(institutionId: string): Promise<boolean>;
   getInstitutionById(institutionId: string): Promise<InstitutionRecord | null>;
   updateStatus(id: string, status: campaign_status): Promise<CampaignEntity>;
+  update(id: string, data: UpdateCampaignData): Promise<CampaignEntity>;
 }
