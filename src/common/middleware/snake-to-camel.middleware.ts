@@ -17,6 +17,7 @@ export class SnakeToCamelMiddleware implements NestMiddleware {
         target_donors: 'targetDonors',
         edit_token: 'editToken',
         image_base64: 'imageBase64',
+        generated_copy: 'generatedCopy',
       };
 
       for (const [snakeKey, camelKey] of Object.entries(fieldMappings)) {

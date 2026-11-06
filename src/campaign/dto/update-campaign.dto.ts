@@ -3,7 +3,6 @@ import {
   IsIn,
   IsInt,
   IsNotEmpty,
-  IsOptional,
   IsString,
   IsUUID,
   Matches,
@@ -11,6 +10,7 @@ import {
   MaxLength,
   Min,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
 import { VALID_BLOOD_TYPES } from './create-campaign.dto.js';
 
@@ -30,13 +30,14 @@ export class UpdateCampaignDto {
 
   /**
    * Nombre completo del paciente receptor de la donación.
-   * Opcional. Si se provee, debe ser válido (solo letras, espacios, guiones o apóstrofes; sin números).
+   * Opcional. Si se provee, no puede ser vacío ni contener números.
    */
   @Transform(({ obj, value }) => {
-    const val = value ?? obj?.patient_name;
+    const val = value !== undefined ? value : obj?.patient_name;
     return typeof val === 'string' ? val.trim() : val;
   })
-  @IsOptional()
+  @ValidateIf((_obj, val) => val !== undefined)
+  @IsNotEmpty({ message: 'El nombre del paciente no puede estar vacío.' })
   @IsString({ message: 'El nombre del paciente debe ser un texto válido.' })
   @MinLength(2, {
     message: 'El nombre del paciente debe contener al menos 2 caracteres.',
@@ -52,25 +53,27 @@ export class UpdateCampaignDto {
 
   /**
    * Identificador único (UUID) del centro de salud o institución receptora.
-   * Opcional.
+   * Opcional. Si se provee, no puede ser vacío y debe ser un UUID v4.
    */
   @Transform(({ obj, value }) => {
-    const val = value ?? obj?.institution_id;
+    const val = value !== undefined ? value : obj?.institution_id;
     return typeof val === 'string' ? val.trim() : val;
   })
-  @IsOptional()
+  @ValidateIf((_obj, val) => val !== undefined)
+  @IsNotEmpty({ message: 'El centro de salud no puede estar vacío.' })
   @IsUUID('4', { message: 'El centro de salud debe ser un UUID v4 válido.' })
   institutionId?: string;
 
   /**
    * Grupo sanguíneo y factor Rh requerido (ej. "0+", "A+", "B-", "TODOS").
-   * Opcional.
+   * Opcional. Si se provee, debe ser uno de los formatos admitidos.
    */
   @Transform(({ obj, value }) => {
-    const val = value ?? obj?.blood_type;
+    const val = value !== undefined ? value : obj?.blood_type;
     return typeof val === 'string' ? val.trim().toUpperCase() : val;
   })
-  @IsOptional()
+  @ValidateIf((_obj, val) => val !== undefined)
+  @IsNotEmpty({ message: 'El grupo sanguíneo no puede estar vacío.' })
   @IsString({ message: 'El grupo sanguíneo debe ser un texto válido.' })
   @IsIn(VALID_BLOOD_TYPES, {
     message:
@@ -80,31 +83,33 @@ export class UpdateCampaignDto {
 
   /**
    * Tipo de donación solicitada (ej. "Sangre entera", "Plaquetas", "Plasma").
-   * Opcional.
+   * Opcional. Permite enviar null o "" para limpiar/borrar el valor en la base de datos.
    */
   @Transform(({ obj, value }) => {
-    const val = value ?? obj?.donation_type;
-    if (val === '' || val === null) return undefined;
+    const val = value !== undefined ? value : obj?.donation_type;
+    if (val === undefined) return undefined;
+    if (val === null || (typeof val === 'string' && val.trim() === '')) return null;
     return typeof val === 'string' ? val.trim() : val;
   })
-  @IsOptional()
+  @ValidateIf((_obj, val) => val !== null && val !== undefined)
   @IsString({ message: 'El tipo de donación debe ser un texto válido.' })
   @MaxLength(50, {
     message: 'El tipo de donación no puede superar los 50 caracteres.',
   })
-  donationType?: string;
+  donationType?: string | null;
 
   /**
    * Cantidad objetivo de donantes requeridos.
-   * Opcional.
+   * Opcional. Permite enviar null o "" para limpiar/borrar el valor en la base de datos.
    */
   @Transform(({ obj, value }) => {
-    const val = value ?? obj?.target_donors;
-    if (val === '' || val === null || val === undefined) return undefined;
+    const val = value !== undefined ? value : obj?.target_donors;
+    if (val === undefined) return undefined;
+    if (val === null || (typeof val === 'string' && val.trim() === '')) return null;
     const num = Number(val);
     return Number.isNaN(num) ? val : num;
   })
-  @IsOptional()
+  @ValidateIf((_obj, val) => val !== null && val !== undefined)
   @IsInt({
     message: 'La cantidad de donantes requeridos debe ser un número entero.',
   })
@@ -112,52 +117,57 @@ export class UpdateCampaignDto {
     message: 'La cantidad de donantes requeridos debe ser al menos 1.',
   })
   @Max(1000, { message: 'La cantidad de donantes no puede exceder los 1000.' })
-  targetDonors?: number;
+  targetDonors?: number | null;
 
   /**
    * Fecha límite para la donación (formato ISO 8601 o YYYY-MM-DD).
-   * Opcional.
+   * Opcional. Permite enviar null o "" para limpiar/borrar el valor en la base de datos.
    */
   @Transform(({ obj, value }) => {
-    const val = value ?? obj?.deadline;
-    return val === '' || val === null ? undefined : val;
+    const val = value !== undefined ? value : obj?.deadline;
+    if (val === undefined) return undefined;
+    if (val === null || (typeof val === 'string' && val.trim() === '')) return null;
+    return typeof val === 'string' ? val.trim() : val;
   })
-  @IsOptional()
+  @ValidateIf((_obj, val) => val !== null && val !== undefined)
   @IsString({
     message: 'La fecha límite debe ser una cadena con formato de fecha válido.',
   })
-  deadline?: string;
+  deadline?: string | null;
 
   /**
    * Observaciones o indicaciones adicionales para los donantes.
-   * Opcional.
+   * Opcional. Permite enviar null o "" para limpiar/borrar el valor en la base de datos.
    */
   @Transform(({ obj, value }) => {
-    const val = value ?? obj?.observations;
-    if (val === '' || val === null) return undefined;
+    const val = value !== undefined ? value : obj?.observations;
+    if (val === undefined) return undefined;
+    if (val === null || (typeof val === 'string' && val.trim() === '')) return null;
     return typeof val === 'string' ? val.trim() : val;
   })
-  @IsOptional()
+  @ValidateIf((_obj, val) => val !== null && val !== undefined)
   @IsString({ message: 'Las observaciones deben ser una cadena de texto.' })
   @MaxLength(1000, {
     message: 'Las observaciones no pueden exceder los 1000 caracteres.',
   })
-  observations?: string;
+  observations?: string | null;
 
   /**
    * Texto publicitario generado automáticamente para redes sociales (copy).
-   * Opcional en PATCH.
+   * Opcional. Permite enviar null o "" para limpiar/borrar el valor en la base de datos.
    */
   @Transform(({ obj, value }) => {
-    const val = value ?? obj?.generated_copy;
-    if (val === '' || val === null) return undefined;
+    const val = value !== undefined ? value : obj?.generated_copy;
+    if (val === undefined) return undefined;
+    if (val === null || (typeof val === 'string' && val.trim() === '')) return null;
     return typeof val === 'string' ? val.trim() : val;
   })
-  @IsOptional()
+  @ValidateIf((_obj, val) => val !== null && val !== undefined)
   @IsString({ message: 'El texto generado (copy) debe ser una cadena de texto.' })
   @MaxLength(2000, {
     message: 'El texto generado (copy) no puede exceder los 2000 caracteres.',
   })
-  generatedCopy?: string;
+  generatedCopy?: string | null;
 }
+
 
