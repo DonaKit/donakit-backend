@@ -18,6 +18,18 @@ export interface CreateCampaignData {
   status?: campaign_status;
 }
 
+export interface UpdateCampaignData {
+  patientName?: string;
+  slug?: string;
+  institutionId?: string;
+  bloodType?: string;
+  donationType?: string;
+  targetDonors?: number | null;
+  deadline?: Date | null;
+  observations?: string | null;
+  status?: campaign_status;
+}
+
 export interface ICampaignRepository {
   create(data: CreateCampaignData): Promise<CampaignEntity>;
   findById(id: string): Promise<CampaignEntity | null>;
@@ -25,4 +37,5 @@ export interface ICampaignRepository {
   institutionExists(institutionId: string): Promise<boolean>;
   getInstitutionById(institutionId: string): Promise<InstitutionRecord | null>;
   updateStatus(id: string, status: campaign_status): Promise<CampaignEntity>;
+  update(id: string, data: UpdateCampaignData): Promise<CampaignEntity>;
 }

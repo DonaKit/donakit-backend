@@ -2,11 +2,14 @@ import {
   BadRequestException,
   Body,
   Controller,
+  ForbiddenException,
   Get,
   HttpCode,
   HttpStatus,
   Param,
+  Patch,
   Post,
+  Query,
   Req,
 } from '@nestjs/common';
 import type { Request } from 'express';
@@ -15,7 +18,9 @@ import { CampaignAssetsResponseDto } from './dto/campaign-assets-response.dto.js
 import { CampaignResponseDto } from './dto/campaign-response.dto.js';
 import { CreateCampaignDto } from './dto/create-campaign.dto.js';
 import { PublicCampaignResponseDto } from './dto/public-campaign.dto.js';
+import { UpdateCampaignDto } from './dto/update-campaign.dto.js';
 import { UploadCampaignAssetsDto } from './dto/upload-campaign-assets.dto.js';
+import { VerifyEditTokenDto } from './dto/verify-edit-token.dto.js';
 
 const UUID_V4_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -80,17 +85,85 @@ export class CampaignController {
   }
 
   /**
-   * Obtiene los detalles públicos de un pedido de donación por su UUID o su slug amigable.
-   * Por seguridad, no expone el editToken ni el slug en la respuesta pública.
+   * Endpoint para corregir o modificar los datos de un pedido de donación (US-09).
+   * Requiere el editToken para validar la autorización del difusor.
+   * Si cambia el nombre del paciente, regenera automáticamente el slug único.
+   */
+  @Patch(':id')
+  async update(
+    @Param('id') id: string,
+    @Body() updateCampaignDto: UpdateCampaignDto,
+  ): Promise<CampaignResponseDto> {
+    if (!UUID_V4_REGEX.test(id)) {
+      throw new BadRequestException(
+        'El identificador de la campaña debe ser un UUID v4 válido.',
+      );
+    }
+
+    const campaign = await this.campaignService.update(id, updateCampaignDto);
+
+    return {
+      success: true,
+      message: 'Pedido de donación actualizado exitosamente.',
+      data: campaign,
+    };
+  }
+
+  /**
+   * Endpoint para validar si un editToken es correcto y recuperar los datos del borrador (US-09).
+   * Devuelve 200 OK con los datos completos si el token es válido, o 403 Forbidden si es incorrecto.
+   */
+  @Post(':id/verify-token')
+  @HttpCode(HttpStatus.OK)
+  async verifyToken(
+    @Param('id') id: string,
+    @Body() verifyDto: VerifyEditTokenDto,
+  ): Promise<CampaignResponseDto> {
+    if (!UUID_V4_REGEX.test(id)) {
+      throw new BadRequestException(
+        'El identificador de la campaña debe ser un UUID v4 válido.',
+      );
+    }
+
+    const campaign = await this.campaignService.verifyEditToken(
+      id,
+      verifyDto.editToken,
+    );
+
+    return {
+      success: true,
+      message: 'Token de edición validado exitosamente.',
+      data: campaign,
+    };
+  }
+
+  /**
+   * Obtiene los detalles de un pedido de donación por su UUID o su slug amigable.
+   * Por defecto responde con el DTO público (sin editToken ni slug).
+   * Si se envía el parámetro ?editToken=... válido, responde con la entidad completa para edición.
    */
   @Get(':idOrSlug')
   async findOne(
     @Param('idOrSlug') idOrSlug: string,
-  ): Promise<PublicCampaignResponseDto> {
+    @Query('editToken') editToken?: string,
+  ): Promise<PublicCampaignResponseDto | CampaignResponseDto> {
     const isUuid = UUID_V4_REGEX.test(idOrSlug);
     const campaign = isUuid
       ? await this.campaignService.findById(idOrSlug)
       : await this.campaignService.findBySlug(idOrSlug);
+
+    if (editToken) {
+      if (campaign.editToken !== editToken.trim()) {
+        throw new ForbiddenException(
+          'El token de edición proporcionado no es válido para esta campaña.',
+        );
+      }
+      return {
+        success: true,
+        message: 'Pedido de donación obtenido exitosamente en modo edición.',
+        data: campaign,
+      };
+    }
 
     return {
       success: true,

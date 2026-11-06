@@ -229,16 +229,19 @@ Crea el registro del pedido con estado **`DRAFT`**, genera un UUID único, un sl
 
 ---
 
-### 3.4. Consultar Pedido Público (por UUID o por Slug)
+### 3.4. Consultar Pedido (por UUID o por Slug)
 
 Permite visualizar la información de una campaña para los donantes que acceden a través del enlace compartido o escanean el código QR.
 
-> 🔒 **Seguridad Garantizada:** Por diseño de protección contra manipulación, **esta respuesta no expone `editToken` ni `slug`**. El enlace ya contiene el slug y el token solo le pertenece al creador original.
+> 🔒 **Seguridad Garantizada:** Por defecto, **esta respuesta no expone `editToken` ni `slug`**. El enlace ya contiene el slug y el token solo le pertenece al creador original.
+>
+> ✏️ **Modo Edición Opcional (US-09):** Si se añade el parámetro query `?editToken=<token>`, el endpoint valida la autenticidad del token y devuelve la entidad completa con `editToken` y `slug` para precargar el formulario de edición. Si el token es inválido, devuelve `403 Forbidden`.
 
 * **Método:** `GET`
 * **Ruta:** `/campaigns/:idOrSlug`
 * **Parámetro URL:** `:idOrSlug` (acepta tanto el UUID v4 como el slug amigable, ej. `donantes-sofia-agustina-martinez-fefc4a`).
-* **Autenticación:** Pública
+* **Query Params (opcional):** `?editToken=...` (para consultar en modo edición).
+* **Autenticación:** Pública (o restringida con `editToken` en modo edición).
 
 #### Respuesta `200 OK`:
 ```json
@@ -374,6 +377,134 @@ Además, este endpoint cumple las reglas de negocio de la historia de usuario **
 #### Errores Comunes:
 * **`400 Bad Request`:** Formato de UUID inválido en `:id`, Base64 corrupto, tipo de archivo no admitido, lista de assets vacía o solicitud de placa sin Base64 cuando no existía previamente.
 * **`403 Forbidden`:** El `editToken` enviado no coincide con el token del creador de la campaña.
+* **`404 Not Found`:** No existe una campaña con el UUID indicado.
+
+---
+
+### 3.6. Corregir / Modificar Datos del Pedido (`PATCH /campaigns/:id`) - US-09
+
+Permite al difusor corregir o modificar los datos del formulario antes de generar la versión final de las placas o después de haber visualizado el borrador.
+
+* **Regeneración Automática de Slug:** Si el nombre del paciente (`patientName`) es modificado, el sistema regenera un nuevo slug URL-friendly para mantener la consistencia con el código QR y enlaces compartidos.
+* **Autorización:** Requiere enviar el `editToken` original en el cuerpo de la petición.
+* **Actualización Parcial:** Solo se actualizan los campos presentes en el cuerpo de la petición.
+
+* **Método:** `PATCH`
+* **Ruta:** `/campaigns/:id`
+* **Parámetro URL:** `:id` (UUID v4 obligatorio del pedido de donación).
+* **Headers requeridos:** `Content-Type: application/json`
+* **Autenticación / Autorización:** Requiere `editToken`.
+
+#### Cuerpo de la Petición (`Request Body`):
+```json
+{
+  "editToken": "8f3a9b1c-2e4d-4a1b-8c2d-3e4f5a6b7c8d",
+  "patientName": "Sofía A. Martínez",
+  "bloodType": "0+",
+  "donationType": "Sangre entera",
+  "targetDonors": 20,
+  "deadline": "2026-12-15",
+  "observations": "Corregido: concurrir en ayunas de sólidos 4 hs."
+}
+```
+
+#### Parámetros del Body:
+
+| Campo | Tipo | Obligatorio | Descripción |
+| :--- | :--- | :---: | :--- |
+| `editToken` | `string` | **Sí** | Token secreto de edición asignado al crear el pedido. Acepta también `edit_token`. |
+| `patientName` | `string` | No | Nombre del paciente receptor (2-255 caracteres, sin números). Acepta `patient_name`. Si cambia, se regenera el slug. |
+| `institutionId` | `string` (UUID v4) | No | Nuevo centro de salud activo. Acepta `institution_id`. |
+| `bloodType` | `string` | No | Grupo sanguíneo (`A+`, `A-`, `B+`, `B-`, `AB+`, `AB-`, `0+`, `0-`, `O+`, `O-`, `TODOS`). Acepta `blood_type`. |
+| `donationType` | `string` | No | Tipo de extracción. Acepta `donation_type`. |
+| `targetDonors` | `integer` | No | Cantidad requerida de donantes (1 a 1000). Acepta `target_donors`. |
+| `deadline` | `string` | No | Fecha límite en formato ISO 8601 o `YYYY-MM-DD`. |
+| `observations` | `string` | No | Indicaciones adicionales para donantes (máx. 1000 caracteres). |
+
+#### Respuesta `200 OK`:
+```json
+{
+  "success": true,
+  "message": "Pedido de donación actualizado exitosamente.",
+  "data": {
+    "id": "b73a9e21-4f10-4821-bdfe-7bd73db49b06",
+    "slug": "donantes-sofia-a-martinez-84e1b2",
+    "editToken": "8f3a9b1c-2e4d-4a1b-8c2d-3e4f5a6b7c8d",
+    "patientName": "Sofía A. Martínez",
+    "bloodType": "0+",
+    "donationType": "Sangre entera",
+    "targetDonors": 20,
+    "currentDonors": 0,
+    "deadline": "2026-12-15T00:00:00.000Z",
+    "observations": "Corregido: concurrir en ayunas de sólidos 4 hs.",
+    "status": "DRAFT",
+    "createdAt": "2026-10-28T19:40:00.000Z",
+    "updatedAt": "2026-11-06T12:00:00.000Z",
+    "institution": {
+      "id": "63a65bfe-3c92-484e-b658-d3446355e5c2",
+      "name": "Hospital Garrahan - Hemoterapia",
+      "address": "Combate de los Pozos 1881",
+      "city": "CABA"
+    }
+  }
+}
+```
+
+#### Errores Comunes:
+* **`400 Bad Request`:** `editToken` faltante, campos con formato inválido (ej. números en nombre del paciente o grupo inválido) o intento de modificar una campaña cancelada.
+* **`403 Forbidden`:** El `editToken` enviado no coincide con el token del creador de la campaña.
+* **`404 Not Found`:** No existe una campaña con el UUID indicado o el nuevo `institutionId` no existe.
+
+---
+
+### 3.7. Validar Token de Edición (`POST /campaigns/:id/verify-token`) - US-09
+
+Permite al frontend verificar si un token de edición almacenado en el cliente (localStorage, session o URL) es válido para la campaña indicada y obtener los datos completos del pedido para precargar el formulario sin exponer el token en llamadas GET públicas.
+
+* **Método:** `POST`
+* **Ruta:** `/campaigns/:id/verify-token`
+* **Parámetro URL:** `:id` (UUID v4 obligatorio del pedido de donación).
+* **Headers requeridos:** `Content-Type: application/json`
+
+#### Cuerpo de la Petición (`Request Body`):
+```json
+{
+  "editToken": "8f3a9b1c-2e4d-4a1b-8c2d-3e4f5a6b7c8d"
+}
+```
+
+#### Respuesta `200 OK`:
+```json
+{
+  "success": true,
+  "message": "Token de edición validado exitosamente.",
+  "data": {
+    "id": "b73a9e21-4f10-4821-bdfe-7bd73db49b06",
+    "slug": "donantes-sofia-agustina-martinez-fefc4a",
+    "editToken": "8f3a9b1c-2e4d-4a1b-8c2d-3e4f5a6b7c8d",
+    "patientName": "Sofía Agustina Martínez",
+    "bloodType": "A+",
+    "donationType": "Plaquetas",
+    "targetDonors": 15,
+    "currentDonors": 0,
+    "deadline": "2026-12-31T00:00:00.000Z",
+    "observations": "Presentarse con DNI en ayuno de grasas.",
+    "status": "DRAFT",
+    "createdAt": "2026-10-28T19:40:00.000Z",
+    "updatedAt": "2026-10-28T19:40:00.000Z",
+    "institution": {
+      "id": "63a65bfe-3c92-484e-b658-d3446355e5c2",
+      "name": "Hospital Garrahan - Hemoterapia",
+      "address": "Combate de los Pozos 1881",
+      "city": "CABA"
+    }
+  }
+}
+```
+
+#### Errores Comunes:
+* **`400 Bad Request`:** UUID v4 inválido o campo `editToken` ausente.
+* **`403 Forbidden`:** El `editToken` no coincide con el registrado para la campaña.
 * **`404 Not Found`:** No existe una campaña con el UUID indicado.
 
 ---

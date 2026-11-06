@@ -1,8 +1,9 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CampaignController } from './campaign.controller.js';
 import { CampaignService } from './campaign.service.js';
 import type { CreateCampaignDto } from './dto/create-campaign.dto.js';
+import type { UpdateCampaignDto } from './dto/update-campaign.dto.js';
 import type { UploadCampaignAssetsDto } from './dto/upload-campaign-assets.dto.js';
 import { CampaignAssetEntity } from './entities/campaign-asset.entity.js';
 import { CampaignEntity } from './entities/campaign.entity.js';
@@ -16,6 +17,8 @@ describe('CampaignController', () => {
     findById: vi.fn(),
     findBySlug: vi.fn(),
     uploadAssets: vi.fn(),
+    update: vi.fn(),
+    verifyEditToken: vi.fn(),
   };
 
   beforeEach(() => {
@@ -133,6 +136,103 @@ describe('CampaignController', () => {
       expect(response.data.patientName).toBe('Test');
       expect((response.data as any).editToken).toBeUndefined();
       expect((response.data as any).slug).toBeUndefined();
+    });
+
+    it('debe devolver la entidad completa con editToken y slug si se provee el editToken correcto vía query param', async () => {
+      const uuid = '63a65bfe-3c92-484e-b658-d3446355e5c2';
+      const mockCampaign = new CampaignEntity({
+        id: uuid,
+        slug: 'donantes-test-123456',
+        editToken: 'secret-edit-token-123',
+        patientName: 'Test',
+      });
+      mockService.findById.mockResolvedValue(mockCampaign);
+
+      const response = await controller.findOne(uuid, 'secret-edit-token-123');
+
+      expect(response.data.id).toBe(uuid);
+      expect((response.data as CampaignEntity).editToken).toBe('secret-edit-token-123');
+      expect((response.data as CampaignEntity).slug).toBe('donantes-test-123456');
+    });
+
+    it('debe lanzar ForbiddenException si el editToken del query param es incorrecto', async () => {
+      const uuid = '63a65bfe-3c92-484e-b658-d3446355e5c2';
+      const mockCampaign = new CampaignEntity({
+        id: uuid,
+        slug: 'donantes-test-123456',
+        editToken: 'secret-edit-token-123',
+        patientName: 'Test',
+      });
+      mockService.findById.mockResolvedValue(mockCampaign);
+
+      await expect(
+        controller.findOne(uuid, 'wrong-token'),
+      ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  describe('update (US-09)', () => {
+    const validUuid = '63a65bfe-3c92-484e-b658-d3446355e5c2';
+    const updateDto: UpdateCampaignDto = {
+      editToken: 'secret-edit-token-123',
+      patientName: 'Paciente Corregido',
+      bloodType: 'B+',
+    };
+
+    it('debe llamar a service.update y retornar el pedido actualizado', async () => {
+      const mockUpdated = new CampaignEntity({
+        id: validUuid,
+        patientName: 'Paciente Corregido',
+        bloodType: 'B+',
+        editToken: 'secret-edit-token-123',
+      });
+      mockService.update.mockResolvedValue(mockUpdated);
+
+      const response = await controller.update(validUuid, updateDto);
+
+      expect(mockService.update).toHaveBeenCalledWith(validUuid, updateDto);
+      expect(response.success).toBe(true);
+      expect(response.message).toBe('Pedido de donación actualizado exitosamente.');
+      expect(response.data).toBe(mockUpdated);
+    });
+
+    it('debe lanzar BadRequestException si el ID no es un UUID v4 válido', async () => {
+      await expect(
+        controller.update('invalid-id', updateDto),
+      ).rejects.toThrow(BadRequestException);
+      expect(mockService.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('verifyToken (US-09)', () => {
+    const validUuid = '63a65bfe-3c92-484e-b658-d3446355e5c2';
+
+    it('debe validar el token y retornar los datos completos de la campaña', async () => {
+      const mockCampaign = new CampaignEntity({
+        id: validUuid,
+        editToken: 'secret-edit-token-123',
+        patientName: 'Paciente Registrado',
+      });
+      mockService.verifyEditToken.mockResolvedValue(mockCampaign);
+
+      const response = await controller.verifyToken(validUuid, {
+        editToken: 'secret-edit-token-123',
+      });
+
+      expect(mockService.verifyEditToken).toHaveBeenCalledWith(
+        validUuid,
+        'secret-edit-token-123',
+      );
+      expect(response.success).toBe(true);
+      expect(response.message).toBe('Token de edición validado exitosamente.');
+      expect(response.data).toBe(mockCampaign);
+    });
+
+    it('debe lanzar BadRequestException si el ID no es un UUID v4 válido', async () => {
+      await expect(
+        controller.verifyToken('invalid-id', { editToken: 'any' }),
+      ).rejects.toThrow(BadRequestException);
+      expect(mockService.verifyEditToken).not.toHaveBeenCalled();
     });
   });
 });

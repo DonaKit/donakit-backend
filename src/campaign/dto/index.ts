@@ -1,4 +1,6 @@
 export * from './create-campaign.dto.js';
+export * from './update-campaign.dto.js';
+export * from './verify-edit-token.dto.js';
 export * from './campaign-response.dto.js';
 export * from './public-campaign.dto.js';
 export * from './upload-campaign-assets.dto.js';

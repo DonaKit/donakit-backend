@@ -30,6 +30,7 @@ describe('CampaignService', () => {
     findById: vi.fn(),
     findBySlug: vi.fn(),
     updateStatus: vi.fn(),
+    update: vi.fn(),
   };
 
   const mockAssetRepository = {
@@ -403,6 +404,151 @@ describe('CampaignService', () => {
           editToken: 'wrong-token',
           assets: validUploadDto.assets,
         }),
+      ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  describe('update (US-09)', () => {
+    const campaignId = 'c8a48c74-5fe6-4fbb-a862-f35601bed580';
+    const validEditToken = 'secret-token-123';
+
+    it('debe actualizar los datos y regenerar el slug cuando el nombre del paciente cambia', async () => {
+      const existingCampaign = new CampaignEntity({
+        id: campaignId,
+        slug: 'donantes-esteban-quispe-123456',
+        editToken: validEditToken,
+        institutionId: mockInstitutionId,
+        patientName: 'Esteban Quispe',
+        bloodType: '0+',
+        status: 'DRAFT',
+      });
+
+      mockRepository.findById.mockResolvedValue(existingCampaign);
+      mockRepository.findBySlug.mockResolvedValue(null);
+      mockRepository.update.mockImplementation((_id, data) =>
+        Promise.resolve(
+          new CampaignEntity({
+            id: campaignId,
+            slug: data.slug,
+            editToken: validEditToken,
+            patientName: data.patientName,
+            bloodType: data.bloodType ?? existingCampaign.bloodType,
+            status: 'DRAFT',
+          }),
+        ),
+      );
+
+      const result = await service.update(campaignId, {
+        editToken: validEditToken,
+        patientName: 'Esteban Carlos Quispe',
+        bloodType: 'A+',
+      });
+
+      expect(mockRepository.findById).toHaveBeenCalledWith(campaignId);
+      expect(mockRepository.update).toHaveBeenCalled();
+      expect(result.patientName).toBe('Esteban Carlos Quispe');
+      expect(result.bloodType).toBe('A+');
+      expect(result.slug).toMatch(/^donantes-esteban-carlos-quispe-[a-f0-9]{6}$/);
+    });
+
+    it('debe mantener el slug actual si el nombre del paciente no cambió', async () => {
+      const existingCampaign = new CampaignEntity({
+        id: campaignId,
+        slug: 'donantes-esteban-quispe-123456',
+        editToken: validEditToken,
+        institutionId: mockInstitutionId,
+        patientName: 'Esteban Quispe',
+        bloodType: '0+',
+        status: 'DRAFT',
+      });
+
+      mockRepository.findById.mockResolvedValue(existingCampaign);
+      mockRepository.update.mockImplementation((_id, data) =>
+        Promise.resolve(
+          new CampaignEntity({
+            id: campaignId,
+            slug: data.slug ?? existingCampaign.slug,
+            editToken: validEditToken,
+            patientName: existingCampaign.patientName,
+            bloodType: data.bloodType ?? existingCampaign.bloodType,
+            status: 'DRAFT',
+          }),
+        ),
+      );
+
+      const result = await service.update(campaignId, {
+        editToken: validEditToken,
+        bloodType: 'B+',
+      });
+
+      expect(mockRepository.update).toHaveBeenCalledWith(
+        campaignId,
+        expect.objectContaining({
+          slug: undefined,
+          bloodType: 'B+',
+        }),
+      );
+      expect(result.slug).toBe('donantes-esteban-quispe-123456');
+    });
+
+    it('debe lanzar ForbiddenException si el editToken es incorrecto', async () => {
+      const existingCampaign = new CampaignEntity({
+        id: campaignId,
+        editToken: validEditToken,
+        status: 'DRAFT',
+      });
+      mockRepository.findById.mockResolvedValue(existingCampaign);
+
+      await expect(
+        service.update(campaignId, {
+          editToken: 'token-incorrecto',
+          bloodType: 'AB+',
+        }),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('debe lanzar BadRequestException si la campaña se encuentra cancelada', async () => {
+      const existingCampaign = new CampaignEntity({
+        id: campaignId,
+        editToken: validEditToken,
+        status: 'CANCELLED',
+      });
+      mockRepository.findById.mockResolvedValue(existingCampaign);
+
+      await expect(
+        service.update(campaignId, {
+          editToken: validEditToken,
+          bloodType: 'AB+',
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('verifyEditToken (US-09)', () => {
+    const campaignId = 'c8a48c74-5fe6-4fbb-a862-f35601bed580';
+    const validEditToken = 'secret-token-123';
+
+    it('debe retornar la campaña si el token es válido', async () => {
+      const existingCampaign = new CampaignEntity({
+        id: campaignId,
+        editToken: validEditToken,
+        patientName: 'Juan Pérez',
+      });
+      mockRepository.findById.mockResolvedValue(existingCampaign);
+
+      const result = await service.verifyEditToken(campaignId, validEditToken);
+      expect(result).toBe(existingCampaign);
+    });
+
+    it('debe lanzar ForbiddenException si el token es inválido', async () => {
+      const existingCampaign = new CampaignEntity({
+        id: campaignId,
+        editToken: validEditToken,
+      });
+      mockRepository.findById.mockResolvedValue(existingCampaign);
+
+      await expect(
+        service.verifyEditToken(campaignId, 'token-erroneo'),
       ).rejects.toThrow(ForbiddenException);
     });
   });

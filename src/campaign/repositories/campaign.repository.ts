@@ -6,6 +6,7 @@ import { CampaignEntity } from '../entities/campaign.entity.js';
 import type {
   CreateCampaignData,
   ICampaignRepository,
+  UpdateCampaignData,
 } from '../interfaces/campaign-repository.interface.js';
 
 @Injectable()
@@ -144,6 +145,48 @@ export class CampaignRepository implements ICampaignRepository {
       },
     });
 
+    return this.mapToEntity(updated);
+  }
+
+  /**
+   * Actualiza los datos de una campaña existente (US-09).
+   */
+  async update(id: string, data: UpdateCampaignData): Promise<CampaignEntity> {
+    const prismaUpdateData: Prisma.campaignUpdateInput = {
+      ...(data.patientName !== undefined ? { patient_name: data.patientName } : {}),
+      ...(data.slug !== undefined ? { slug: data.slug } : {}),
+      ...(data.bloodType !== undefined ? { blood_type: data.bloodType } : {}),
+      ...(data.donationType !== undefined ? { donation_type: data.donationType } : {}),
+      ...(data.targetDonors !== undefined ? { target_donors: data.targetDonors } : {}),
+      ...(data.deadline !== undefined ? { deadline: data.deadline } : {}),
+      ...(data.observations !== undefined ? { observations: data.observations } : {}),
+      ...(data.status !== undefined ? { status: data.status } : {}),
+      ...(data.institutionId !== undefined
+        ? {
+            institution: {
+              connect: { id: data.institutionId },
+            },
+          }
+        : {}),
+    };
+
+    const updated = await this.prisma.campaign.update({
+      where: { id },
+      data: prismaUpdateData,
+      include: {
+        institution: {
+          select: {
+            id: true,
+            name: true,
+            address: true,
+            city: true,
+          },
+        },
+        campaign_asset: true,
+      },
+    });
+
+    this.logger.log(`Campaña con ID '${id}' actualizada exitosamente.`);
     return this.mapToEntity(updated);
   }
 

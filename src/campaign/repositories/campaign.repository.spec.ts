@@ -156,4 +156,67 @@ describe('CampaignRepository', () => {
       expect(exists).toBe(false);
     });
   });
+
+  describe('update', () => {
+    it('debe actualizar los campos en prisma y retornar un CampaignEntity actualizado', async () => {
+      const mockRecord = {
+        id: '11111111-2222-3333-4444-555555555555',
+        slug: 'donantes-modificado-654321',
+        edit_token: 'token-abc',
+        institution_id: 'inst-2',
+        patient_name: 'Paciente Modificado',
+        blood_type: '0-',
+        donation_type: 'Plaquetas',
+        target_donors: 8,
+        current_donors: 0,
+        deadline: null,
+        observations: 'Nueva observación',
+        generated_copy: null,
+        status: 'DRAFT',
+        created_at: new Date(),
+        updated_at: new Date(),
+        institution: {
+          id: 'inst-2',
+          name: 'Hospital de Clínicas',
+          address: 'Av. Córdoba 2351',
+          city: 'CABA',
+        },
+      };
+
+      mockPrisma.campaign.update = vi.fn().mockResolvedValue(mockRecord);
+
+      const result = await repository.update(
+        '11111111-2222-3333-4444-555555555555',
+        {
+          patientName: 'Paciente Modificado',
+          slug: 'donantes-modificado-654321',
+          bloodType: '0-',
+          donationType: 'Plaquetas',
+          targetDonors: 8,
+          observations: 'Nueva observación',
+          institutionId: 'inst-2',
+        },
+      );
+
+      expect(mockPrisma.campaign.update).toHaveBeenCalledWith({
+        where: { id: '11111111-2222-3333-4444-555555555555' },
+        data: expect.objectContaining({
+          patient_name: 'Paciente Modificado',
+          slug: 'donantes-modificado-654321',
+          blood_type: '0-',
+          donation_type: 'Plaquetas',
+          target_donors: 8,
+          observations: 'Nueva observación',
+          institution: {
+            connect: { id: 'inst-2' },
+          },
+        }),
+        include: expect.any(Object),
+      });
+
+      expect(result).toBeInstanceOf(CampaignEntity);
+      expect(result.patientName).toBe('Paciente Modificado');
+      expect(result.bloodType).toBe('0-');
+    });
+  });
 });
