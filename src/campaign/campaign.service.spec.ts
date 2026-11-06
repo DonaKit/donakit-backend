@@ -560,6 +560,54 @@ describe('CampaignService', () => {
         }),
       ).rejects.toThrow(BadRequestException);
     });
+
+    it('debe permitir borrar datos opcionales enviando null (deadline, targetDonors, observations)', async () => {
+      const existingCampaign = new CampaignEntity({
+        id: campaignId,
+        slug: 'donantes-esteban-quispe-123456',
+        editToken: validEditToken,
+        patientName: 'Esteban Quispe',
+        bloodType: 'A+',
+        targetDonors: 10,
+        deadline: new Date('2026-12-31'),
+        observations: 'Observaciones iniciales',
+        status: 'DRAFT',
+      });
+
+      mockRepository.findById.mockResolvedValue(existingCampaign);
+      mockRepository.update.mockResolvedValue(
+        new CampaignEntity({
+          id: existingCampaign.id,
+          slug: existingCampaign.slug,
+          editToken: existingCampaign.editToken,
+          patientName: existingCampaign.patientName,
+          bloodType: existingCampaign.bloodType,
+          status: existingCampaign.status,
+          targetDonors: null,
+          deadline: null,
+          observations: null,
+        }),
+      );
+
+      const result = await service.update(campaignId, {
+        editToken: validEditToken,
+        targetDonors: null,
+        deadline: null,
+        observations: null,
+      });
+
+      expect(mockRepository.update).toHaveBeenCalledWith(
+        campaignId,
+        expect.objectContaining({
+          targetDonors: null,
+          deadline: null,
+          observations: null,
+        }),
+      );
+      expect(result.targetDonors).toBeNull();
+      expect(result.deadline).toBeNull();
+      expect(result.observations).toBeNull();
+    });
   });
 
   describe('verifyEditToken (US-09)', () => {

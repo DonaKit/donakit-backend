@@ -26,7 +26,7 @@ export interface UpdateCampaignData {
   slug?: string;
   institutionId?: string;
   bloodType?: string;
-  donationType?: string;
+  donationType?: string | null;
   targetDonors?: number | null;
   deadline?: Date | null;
   observations?: string | null;

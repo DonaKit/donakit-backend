@@ -525,7 +525,7 @@ Permite al difusor corregir o modificar los datos del formulario antes de genera
 
 * **Regeneración Automática de Slug:** Si el nombre del paciente (`patientName`) es modificado, el sistema regenera un nuevo slug URL-friendly para mantener la consistencia con el código QR y enlaces compartidos.
 * **Autorización:** Requiere enviar el `editToken` original en el cuerpo de la petición.
-* **Actualización Parcial:** Solo se actualizan los campos presentes en el cuerpo de la petición.
+* **Actualización Parcial y Limpieza:** Solo se actualizan los campos presentes en el cuerpo de la petición. Los campos opcionales (`targetDonors`, `deadline`, `observations`, `donationType`) admiten `null` o `""` (string vacío) para borrar su valor en base de datos (`NULL`). Si un campo se omite de la petición (`undefined`), conserva su valor actual sin modificaciones.
 
 * **Método:** `PATCH`
 * **Ruta:** `/campaigns/:id`
@@ -554,11 +554,11 @@ Permite al difusor corregir o modificar los datos del formulario antes de genera
 | `patientName` | `string` | No | Nombre del paciente receptor (2-255 caracteres, sin números). Acepta `patient_name`. Si cambia, se regenera el slug. |
 | `institutionId` | `string` (UUID v4) | No | Nuevo centro de salud activo. Acepta `institution_id`. |
 | `bloodType` | `string` | No | Grupo sanguíneo (`A+`, `A-`, `B+`, `B-`, `AB+`, `AB-`, `0+`, `0-`, `O+`, `O-`, `TODOS`). Acepta `blood_type`. |
-| `donationType` | `string` | No | Tipo de extracción. Acepta `donation_type`. |
-| `targetDonors` | `integer` | No | Cantidad requerida de donantes (1 a 1000). Acepta `target_donors`. |
-| `deadline` | `string` | No | Fecha límite en formato ISO 8601 o `YYYY-MM-DD`. |
-| `observations` | `string` | No | Indicaciones adicionales para donantes (máx. 1000 caracteres). |
-| `generatedCopy` | `string` | No | Texto publicitario (copy) actualizado para compartir en redes. Acepta `generated_copy`. |
+| `donationType` | `string` / `null` | No | Tipo de extracción. Acepta `donation_type`. Enviar `null` o `""` borra el valor en BD. |
+| `targetDonors` | `integer` / `null` | No | Cantidad requerida de donantes (1 a 1000). Acepta `target_donors`. Enviar `null` o `""` borra el valor en BD. |
+| `deadline` | `string` / `null` | No | Fecha límite en formato ISO 8601 o `YYYY-MM-DD`. Enviar `null` o `""` borra el valor en BD. |
+| `observations` | `string` / `null` | No | Indicaciones adicionales para donantes (máx. 1000 caracteres). Enviar `null` o `""` borra el valor en BD. |
+| `generatedCopy` | `string` / `null` | No | Texto publicitario (copy) actualizado para compartir en redes. Acepta `generated_copy`. Enviar `null` o `""` borra el valor en BD. |
 
 #### Respuesta `200 OK`:
 ```json

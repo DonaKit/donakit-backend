@@ -581,6 +581,33 @@ describe('CampaignController (e2e) - US-01 / ST-03, ST-04, ST-05', () => {
       expect(response.body.data.targetDonors).toBe(12);
     });
 
+    it('debe permitir borrar datos opcionales enviando null o string vacío en PATCH /campaigns/:id', async () => {
+      const payload = {
+        editToken: testCampaign.editToken,
+        targetDonors: null,
+        deadline: '',
+        observations: null,
+      };
+
+      const response = await request(app.getHttpServer())
+        .patch(`/campaigns/${testCampaign.id}`)
+        .send(payload)
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.targetDonors).toBeNull();
+      expect(response.body.data.deadline).toBeNull();
+      expect(response.body.data.observations).toBeNull();
+
+      // Verificar directamente en la base de datos de Supabase que los campos sean null
+      const inDb = await prisma.campaign.findUnique({
+        where: { id: testCampaign.id },
+      });
+      expect(inDb?.target_donors).toBeNull();
+      expect(inDb?.deadline).toBeNull();
+      expect(inDb?.observations).toBeNull();
+    });
+
     it('debe rechazar PATCH /campaigns/:id con 403 Forbidden si el editToken es inválido', async () => {
       await request(app.getHttpServer())
         .patch(`/campaigns/${testCampaign.id}`)
