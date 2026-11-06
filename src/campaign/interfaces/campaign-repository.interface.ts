@@ -15,6 +15,7 @@ export interface CreateCampaignData {
   targetDonors?: number;
   deadline?: Date;
   observations?: string;
+  generatedCopy?: string;
   status?: campaign_status;
 }
 
@@ -27,6 +28,7 @@ export interface UpdateCampaignData {
   targetDonors?: number | null;
   deadline?: Date | null;
   observations?: string | null;
+  generatedCopy?: string | null;
   status?: campaign_status;
 }
 

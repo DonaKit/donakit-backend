@@ -339,6 +339,7 @@ Además, este endpoint cumple las reglas de negocio de la historia de usuario **
 | Campo | Tipo | Obligatorio | Descripción y Reglas |
 | :--- | :--- | :---: | :--- |
 | `editToken` | `string` | **Sí** | Token secreto de edición asignado al crear el pedido. Acepta también `edit_token`. |
+| `generatedCopy` | `string` | No | Texto publicitario (copy) actualizado para compartir en redes. Acepta `generated_copy`. |
 | `recordDownload` | `boolean` | No | Determina si se registra el evento en `download_log`. Por defecto `true`. Acepta también `record_download`. |
 | `assets` | `array` | **Sí** | Colección de placas generadas (mínimo 1 elemento). Puede contener una sola placa o ambas. |
 | `assets[].format` | `string` | **Sí** | Formato de la placa: `SQUARE_1_1` (feed) o `STORY_9_16` (historia). |
@@ -420,6 +421,7 @@ Permite al difusor corregir o modificar los datos del formulario antes de genera
 | `targetDonors` | `integer` | No | Cantidad requerida de donantes (1 a 1000). Acepta `target_donors`. |
 | `deadline` | `string` | No | Fecha límite en formato ISO 8601 o `YYYY-MM-DD`. |
 | `observations` | `string` | No | Indicaciones adicionales para donantes (máx. 1000 caracteres). |
+| `generatedCopy` | `string` | No | Texto publicitario (copy) actualizado para compartir en redes. Acepta `generated_copy`. |
 
 #### Respuesta `200 OK`:
 ```json

@@ -89,4 +89,17 @@ export class UploadCampaignAssetsDto {
   @IsOptional()
   @IsBoolean({ message: 'recordDownload debe ser un valor booleano.' })
   recordDownload?: boolean;
+
+  /**
+   * Texto publicitario generado automáticamente para redes sociales (copy).
+   * Opcional al subir/confirmar placas.
+   */
+  @Transform(({ obj, value }) => {
+    const val = value ?? obj?.generated_copy;
+    if (val === '' || val === null) return undefined;
+    return typeof val === 'string' ? val.trim() : val;
+  })
+  @IsOptional()
+  @IsString({ message: 'El texto generado (copy) debe ser una cadena de texto.' })
+  generatedCopy?: string;
 }

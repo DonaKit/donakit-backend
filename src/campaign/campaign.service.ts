@@ -35,7 +35,7 @@ export class CampaignService {
     private readonly campaignAssetRepository: CampaignAssetRepository,
     private readonly downloadLogRepository: DownloadLogRepository,
     private readonly storageService: StorageService,
-  ) {}
+  ) { }
 
   /**
    * Crea un nuevo pedido básico de donación persistiendo en Supabase con UUID y slug único.
@@ -81,6 +81,7 @@ export class CampaignService {
       targetDonors: dto.targetDonors,
       deadline: deadlineDate,
       observations: dto.observations,
+      generatedCopy: dto.generatedCopy,
     });
 
     this.logger.log(
@@ -196,6 +197,7 @@ export class CampaignService {
       targetDonors: dto.targetDonors,
       deadline: deadlineDate,
       observations: dto.observations,
+      generatedCopy: dto.generatedCopy,
     });
 
     this.logger.log(`Pedido de donación '${id}' actualizado exitosamente.`);
@@ -337,7 +339,17 @@ export class CampaignService {
       }
     }
 
-    // 5. Guardar definitivamente el pedido en la plataforma (US-07: DRAFT -> ACTIVE)
+    // 5. Guardar texto generado (copy) si se envía junto con las placas
+    if (dto.generatedCopy !== undefined) {
+      await this.campaignRepository.update(campaignId, {
+        generatedCopy: dto.generatedCopy,
+      });
+      this.logger.log(
+        `Texto generado (copy) actualizado para la campaña '${campaignId}'`,
+      );
+    }
+
+    // 6. Guardar definitivamente el pedido en la plataforma (US-07: DRAFT -> ACTIVE)
     if (campaign.status === 'DRAFT') {
       await this.campaignRepository.updateStatus(campaignId, 'ACTIVE');
       this.logger.log(

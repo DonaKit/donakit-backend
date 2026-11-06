@@ -536,6 +536,7 @@ describe('CampaignController (e2e) - US-01 / ST-03, ST-04, ST-05', () => {
         donationType: 'Plasma',
         targetDonors: 20,
         observations: 'Observaciones corregidas en el formulario.',
+        generatedCopy: 'Texto publicitario actualizado para compartir en WhatsApp.',
       };
 
       const response = await request(app.getHttpServer())
@@ -553,6 +554,7 @@ describe('CampaignController (e2e) - US-01 / ST-03, ST-04, ST-05', () => {
       expect(updated.donationType).toBe('Plasma');
       expect(updated.targetDonors).toBe(20);
       expect(updated.observations).toBe('Observaciones corregidas en el formulario.');
+      expect(updated.generatedCopy).toBe('Texto publicitario actualizado para compartir en WhatsApp.');
       // Al cambiar el nombre del paciente, el slug debe regenerarse con el nuevo nombre
       expect(updated.slug).toMatch(/^donantes-mariana-andrea-lopez-[a-f0-9]{6}$/);
       expect(updated.slug).not.toBe(testCampaign.slug);
@@ -613,6 +615,41 @@ describe('CampaignController (e2e) - US-01 / ST-03, ST-04, ST-05', () => {
 
       expect(response.body.statusCode).toBe(400);
       expect(response.body.errors.bloodType[0]).toContain('formatos válidos');
+    });
+
+    it('debe registrar y actualizar las nuevas placas y texto generado en POST /campaigns/:id/assets tras haber editado el pedido', async () => {
+      const samplePng =
+        'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+
+      const payload = {
+        editToken: testCampaign.editToken,
+        generatedCopy: 'Copy final confirmado tras edición.',
+        assets: [
+          {
+            format: 'SQUARE_1_1',
+            imageBase64: samplePng,
+          },
+        ],
+      };
+
+      const response = await request(app.getHttpServer())
+        .post(`/campaigns/${testCampaign.id}/assets`)
+        .send(payload)
+        .expect(201);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.data).toHaveLength(1);
+
+      // Verificar en base de datos que se haya guardado el generated_copy y la placa
+      const updatedCampaignInDb = await prisma.campaign.findUnique({
+        where: { id: testCampaign.id },
+        include: { campaign_asset: true },
+      });
+      expect(updatedCampaignInDb?.generated_copy).toBe(
+        'Copy final confirmado tras edición.',
+      );
+      expect(updatedCampaignInDb?.status).toBe('ACTIVE');
+      expect(updatedCampaignInDb?.campaign_asset).toHaveLength(1);
     });
   });
 });

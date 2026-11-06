@@ -143,5 +143,21 @@ export class UpdateCampaignDto {
     message: 'Las observaciones no pueden exceder los 1000 caracteres.',
   })
   observations?: string;
+
+  /**
+   * Texto publicitario generado automáticamente para redes sociales (copy).
+   * Opcional en PATCH.
+   */
+  @Transform(({ obj, value }) => {
+    const val = value ?? obj?.generated_copy;
+    if (val === '' || val === null) return undefined;
+    return typeof val === 'string' ? val.trim() : val;
+  })
+  @IsOptional()
+  @IsString({ message: 'El texto generado (copy) debe ser una cadena de texto.' })
+  @MaxLength(2000, {
+    message: 'El texto generado (copy) no puede exceder los 2000 caracteres.',
+  })
+  generatedCopy?: string;
 }
 
