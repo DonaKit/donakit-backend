@@ -3,6 +3,8 @@ import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service.js';
 import { CampaignAssetEntity } from '../entities/campaign-asset.entity.js';
 import { CampaignEntity } from '../entities/campaign.entity.js';
+import { FaqItemEntity } from '../entities/faq-item.entity.js';
+import { RequirementEntity } from '../entities/requirement.entity.js';
 import type {
   CreateCampaignData,
   ICampaignRepository,
@@ -12,6 +14,22 @@ import type {
 @Injectable()
 export class CampaignRepository implements ICampaignRepository {
   private readonly logger = new Logger(CampaignRepository.name);
+
+  private readonly institutionSelect = {
+    id: true,
+    name: true,
+    address: true,
+    city: true,
+    phone: true,
+    whatsapp: true,
+    email: true,
+    website_url: true,
+    requirements_url: true,
+    faq_url: true,
+    business_hours: true,
+    specific_requirements: true,
+    logo_url: true,
+  };
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -40,12 +58,7 @@ export class CampaignRepository implements ICampaignRepository {
       data: prismaCreateData,
       include: {
         institution: {
-          select: {
-            id: true,
-            name: true,
-            address: true,
-            city: true,
-          },
+          select: this.institutionSelect,
         },
       },
     });
@@ -57,47 +70,128 @@ export class CampaignRepository implements ICampaignRepository {
   }
 
   /**
-   * Busca una campaña por su UUID.
+   * Busca una campaña por su UUID con datos completos para la landing page.
    */
   async findById(id: string): Promise<CampaignEntity | null> {
     const record = await this.prisma.campaign.findUnique({
       where: { id },
       include: {
         institution: {
-          select: {
-            id: true,
-            name: true,
-            address: true,
-            city: true,
-          },
+          select: this.institutionSelect,
         },
         campaign_asset: true,
       },
     });
 
-    return record ? this.mapToEntity(record) : null;
+    if (!record) {
+      return null;
+    }
+
+    const [requirements, faqs] = await Promise.all([
+      this.findRequirements(record.institution_id),
+      this.findFaqs(record.institution_id),
+    ]);
+
+    return this.mapToEntity(record, requirements, faqs);
   }
 
   /**
-   * Busca una campaña por su slug amigable.
+   * Busca una campaña por su slug amigable con datos completos para la landing page.
    */
   async findBySlug(slug: string): Promise<CampaignEntity | null> {
     const record = await this.prisma.campaign.findUnique({
       where: { slug },
       include: {
         institution: {
-          select: {
-            id: true,
-            name: true,
-            address: true,
-            city: true,
-          },
+          select: this.institutionSelect,
         },
         campaign_asset: true,
       },
     });
 
-    return record ? this.mapToEntity(record) : null;
+    if (!record) {
+      return null;
+    }
+
+    const [requirements, faqs] = await Promise.all([
+      this.findRequirements(record.institution_id),
+      this.findFaqs(record.institution_id),
+    ]);
+
+    return this.mapToEntity(record, requirements, faqs);
+  }
+
+  /**
+   * Consulta los requisitos generales y específicos aplicables a la institución.
+   */
+  async findRequirements(
+    institutionId?: string,
+    category?: string,
+    immediateOnly?: boolean,
+  ): Promise<RequirementEntity[]> {
+    const where: Prisma.requirementWhereInput = {
+      ...(institutionId
+        ? {
+            OR: [{ institution_id: null }, { institution_id: institutionId }],
+          }
+        : { institution_id: null }),
+      ...(category ? { category: { equals: category, mode: 'insensitive' } } : {}),
+      ...(immediateOnly !== undefined
+        ? { is_immediate_disqualification: immediateOnly }
+        : {}),
+    };
+
+    const records = await this.prisma.requirement.findMany({
+      where,
+      orderBy: [{ display_order: 'asc' }, { title: 'asc' }],
+    });
+
+    return records.map(
+      (r) =>
+        new RequirementEntity({
+          id: r.id,
+          institutionId: r.institution_id,
+          title: r.title,
+          description: r.description,
+          isImmediateDisqualification: r.is_immediate_disqualification,
+          category: r.category,
+          displayOrder: r.display_order,
+        }),
+    );
+  }
+
+  /**
+   * Consulta las preguntas frecuentes generales y específicas aplicables a la institución.
+   */
+  async findFaqs(
+    institutionId?: string,
+    category?: string,
+  ): Promise<FaqItemEntity[]> {
+    const where: Prisma.faq_itemWhereInput = {
+      ...(institutionId
+        ? {
+            OR: [{ institution_id: null }, { institution_id: institutionId }],
+          }
+        : { institution_id: null }),
+      ...(category ? { category: { equals: category, mode: 'insensitive' } } : {}),
+    };
+
+    const records = await this.prisma.faq_item.findMany({
+      where,
+      orderBy: [{ display_order: 'asc' }, { question: 'asc' }],
+    });
+
+    return records.map(
+      (f) =>
+        new FaqItemEntity({
+          id: f.id,
+          institutionId: f.institution_id,
+          question: f.question,
+          answer: f.answer,
+          category: f.category,
+          displayOrder: f.display_order,
+        }),
+    );
   }
 
   /**
@@ -135,12 +229,7 @@ export class CampaignRepository implements ICampaignRepository {
       data: { status },
       include: {
         institution: {
-          select: {
-            id: true,
-            name: true,
-            address: true,
-            city: true,
-          },
+          select: this.institutionSelect,
         },
         campaign_asset: true,
       },
@@ -179,12 +268,7 @@ export class CampaignRepository implements ICampaignRepository {
       data: prismaUpdateData,
       include: {
         institution: {
-          select: {
-            id: true,
-            name: true,
-            address: true,
-            city: true,
-          },
+          select: this.institutionSelect,
         },
         campaign_asset: true,
       },
@@ -197,7 +281,11 @@ export class CampaignRepository implements ICampaignRepository {
   /**
    * Mapea un registro raw de Prisma al modelo de dominio CampaignEntity.
    */
-  private mapToEntity(record: any): CampaignEntity {
+  private mapToEntity(
+    record: any,
+    requirements: RequirementEntity[] = [],
+    faqs: FaqItemEntity[] = [],
+  ): CampaignEntity {
     return new CampaignEntity({
       id: record.id,
       slug: record.slug,
@@ -220,6 +308,16 @@ export class CampaignRepository implements ICampaignRepository {
             name: record.institution.name,
             address: record.institution.address,
             city: record.institution.city,
+            phone: record.institution.phone ?? null,
+            whatsapp: record.institution.whatsapp ?? null,
+            email: record.institution.email ?? null,
+            websiteUrl: record.institution.website_url ?? null,
+            requirementsUrl: record.institution.requirements_url ?? null,
+            faqUrl: record.institution.faq_url ?? null,
+            businessHours: record.institution.business_hours ?? null,
+            specificRequirements:
+              record.institution.specific_requirements ?? null,
+            logoUrl: record.institution.logo_url ?? null,
           }
         : undefined,
       assets: Array.isArray(record.campaign_asset)
@@ -236,6 +334,9 @@ export class CampaignRepository implements ICampaignRepository {
               }),
           )
         : undefined,
+      requirements,
+      faqs,
     });
   }
 }
+

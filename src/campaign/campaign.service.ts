@@ -14,12 +14,17 @@ import type { UpdateCampaignDto } from './dto/update-campaign.dto.js';
 import type { UploadCampaignAssetsDto } from './dto/upload-campaign-assets.dto.js';
 import { CampaignAssetEntity } from './entities/campaign-asset.entity.js';
 import { CampaignEntity } from './entities/campaign.entity.js';
+import type { FaqItemEntity } from './entities/faq-item.entity.js';
+import type { RequirementEntity } from './entities/requirement.entity.js';
 import { CampaignAssetRepository } from './repositories/campaign-asset.repository.js';
 import { CampaignRepository } from './repositories/campaign.repository.js';
 import { DownloadLogRepository } from './repositories/download-log.repository.js';
 import { parseBase64Image } from './utils/base64-image.util.js';
 import { hashIp } from './utils/hash.util.js';
 import { generateCampaignSlug } from './utils/slug.util.js';
+
+const UUID_V4_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const ASSET_TO_DOWNLOAD_TYPE: Record<asset_format, download_type> = {
   SQUARE_1_1: 'IMAGE_1_1',
@@ -114,6 +119,44 @@ export class CampaignService {
       );
     }
     return campaign;
+  }
+
+  /**
+   * Obtiene un pedido de donación por su UUID o slug amigable.
+   */
+  async findByIdOrSlug(idOrSlug: string): Promise<CampaignEntity> {
+    const isUuid = UUID_V4_REGEX.test(idOrSlug);
+    return isUuid ? this.findById(idOrSlug) : this.findBySlug(idOrSlug);
+  }
+
+  /**
+   * Obtiene los requisitos aplicables a un pedido de donación (US-12).
+   */
+  async getRequirements(
+    idOrSlug: string,
+    category?: string,
+    immediateOnly?: boolean,
+  ): Promise<RequirementEntity[]> {
+    const campaign = await this.findByIdOrSlug(idOrSlug);
+    return this.campaignRepository.findRequirements(
+      campaign.institutionId,
+      category,
+      immediateOnly,
+    );
+  }
+
+  /**
+   * Obtiene las preguntas frecuentes aplicables a un pedido de donación (US-13).
+   */
+  async getFaqs(
+    idOrSlug: string,
+    category?: string,
+  ): Promise<FaqItemEntity[]> {
+    const campaign = await this.findByIdOrSlug(idOrSlug);
+    return this.campaignRepository.findFaqs(
+      campaign.institutionId,
+      category,
+    );
   }
 
   /**

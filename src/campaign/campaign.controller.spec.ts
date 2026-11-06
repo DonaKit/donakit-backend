@@ -19,6 +19,8 @@ describe('CampaignController', () => {
     uploadAssets: vi.fn(),
     update: vi.fn(),
     verifyEditToken: vi.fn(),
+    getRequirements: vi.fn(),
+    getFaqs: vi.fn(),
   };
 
   beforeEach(() => {
@@ -233,6 +235,48 @@ describe('CampaignController', () => {
         controller.verifyToken('invalid-id', { editToken: 'any' }),
       ).rejects.toThrow(BadRequestException);
       expect(mockService.verifyEditToken).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('getRequirements (US-12)', () => {
+    it('debe delegar en service.getRequirements con filtros', async () => {
+      mockService.getRequirements.mockResolvedValue([
+        { id: 'req-1', title: 'Edad' },
+      ]);
+
+      const response = await controller.getRequirements(
+        'donantes-slug-123',
+        'GENERAL',
+        'true',
+      );
+
+      expect(mockService.getRequirements).toHaveBeenCalledWith(
+        'donantes-slug-123',
+        'GENERAL',
+        true,
+      );
+      expect(response.success).toBe(true);
+      expect(response.data).toHaveLength(1);
+    });
+  });
+
+  describe('getFaqs (US-13)', () => {
+    it('debe delegar en service.getFaqs con categoría', async () => {
+      mockService.getFaqs.mockResolvedValue([
+        { id: 'faq-1', question: '¿Puedo donar?' },
+      ]);
+
+      const response = await controller.getFaqs(
+        'donantes-slug-123',
+        'TATUAJES',
+      );
+
+      expect(mockService.getFaqs).toHaveBeenCalledWith(
+        'donantes-slug-123',
+        'TATUAJES',
+      );
+      expect(response.success).toBe(true);
+      expect(response.data).toHaveLength(1);
     });
   });
 });

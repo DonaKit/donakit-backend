@@ -686,4 +686,143 @@ describe('CampaignController (e2e) - US-01 / ST-03, ST-04, ST-05', () => {
       expect(logs[0].ip_hash).toBeDefined();
     });
   });
+
+  describe('Landing Page Endpoints (US-11, US-12, US-13, US-14, US-15)', () => {
+    let landingCampaign: any;
+
+    beforeAll(async () => {
+      const res = await request(app.getHttpServer())
+        .post('/campaigns')
+        .send({
+          patientName: 'Sofía Agustina Martínez',
+          institutionId: testInstitutionId,
+          bloodType: '0+',
+          donationType: 'Sangre entera',
+          targetDonors: 10,
+          deadline: '2026-11-20T00:00:00.000Z',
+          observations:
+            'Presentarse con DNI en el centro de hemoterapia en ayunas de lácteos y grasas.',
+        })
+        .expect(201);
+
+      landingCampaign = res.body.data;
+      createdCampaignIds.push(landingCampaign.id);
+    });
+
+    it('debe devolver todos los datos integrados de la Landing Page al consultar por slug (GET /campaigns/:slug)', async () => {
+      const response = await request(app.getHttpServer())
+        .get(`/campaigns/${landingCampaign.slug}`)
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      const data = response.body.data;
+
+      // US-11: Qué se pide (grupo sanguíneo, tipo de donación, meta de donantes, fecha límite, urgencia/observaciones)
+      expect(data.patientName).toBe('Sofía Agustina Martínez');
+      expect(data.bloodType).toBe('0+');
+      expect(data.donationType).toBe('Sangre entera');
+      expect(data.targetDonors).toBe(10);
+      expect(data.currentDonors).toBe(0);
+      expect(data.deadline).toBeDefined();
+      expect(data.observations).toBe(
+        'Presentarse con DNI en el centro de hemoterapia en ayunas de lácteos y grasas.',
+      );
+      expect(data.status).toBeDefined();
+
+      // US-14: Dirección escrita completa y horarios de atención específicos
+      expect(data.institution).toBeDefined();
+      expect(data.institution.name).toBe('Hospital Garrahan - Hemoterapia');
+      expect(data.institution.address).toBe('Combate de los Pozos 1881');
+      expect(data.institution.city).toBe('CABA');
+      expect(data.institution.businessHours).toBeDefined();
+      expect(data.institution.businessHours.dias).toBe('Lunes a Viernes');
+      expect(data.institution.businessHours.horario).toBe('07:00 a 18:00');
+
+      // US-15: Canales de contacto de la institución
+      expect(data.institution.phone).toBe('011 4122-6000');
+      expect(data.institution.whatsapp).toBe('+5491120270742');
+      expect(data.institution.email).toBe('hemoterapia@garrahan.gov.ar');
+      expect(data.institution.websiteUrl).toBe('https://www.garrahan.gov.ar');
+
+      // US-12: Requisitos generales e inhabilitaciones inmediatas
+      expect(Array.isArray(data.requirements)).toBe(true);
+      expect(data.requirements.length).toBeGreaterThanOrEqual(5);
+
+      const edadReq = data.requirements.find(
+        (r: any) => r.title.toLowerCase().includes('edad'),
+      );
+      expect(edadReq).toBeDefined();
+      expect(edadReq.isImmediateDisqualification).toBe(true);
+
+      const pesoReq = data.requirements.find(
+        (r: any) => r.title.toLowerCase().includes('peso'),
+      );
+      expect(pesoReq).toBeDefined();
+      expect(pesoReq.isImmediateDisqualification).toBe(true);
+
+      const comidaReq = data.requirements.find(
+        (r: any) =>
+          r.title.toLowerCase().includes('comida') ||
+          r.title.toLowerCase().includes('desayuno'),
+      );
+      expect(comidaReq).toBeDefined();
+
+      expect(data.institution.specificRequirements).toBeDefined();
+
+      // US-13: Preguntas Frecuentes (FAQ) organizadas por categorías
+      expect(Array.isArray(data.faqs)).toBe(true);
+      expect(data.faqs.length).toBeGreaterThanOrEqual(3);
+
+      const categories = data.faqs.map((f: any) => f.category);
+      expect(categories).toContain('TATUAJES');
+      expect(categories).toContain('MEDICACION');
+      expect(categories).toContain('HEPATITIS');
+    });
+
+    it('debe responder a GET /campaigns/:slug/requirements permitiendo filtrar por inhabilitaciones inmediatas (US-12)', async () => {
+      const response = await request(app.getHttpServer())
+        .get(`/campaigns/${landingCampaign.slug}/requirements?immediateOnly=true`)
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(Array.isArray(response.body.data)).toBe(true);
+      expect(response.body.data.length).toBeGreaterThan(0);
+
+      for (const reqItem of response.body.data) {
+        expect(reqItem.isImmediateDisqualification).toBe(true);
+      }
+    });
+
+    it('debe responder a GET /campaigns/:slug/faqs permitiendo filtrar por categoría médica (US-13)', async () => {
+      const response = await request(app.getHttpServer())
+        .get(`/campaigns/${landingCampaign.slug}/faqs?category=TATUAJES`)
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(Array.isArray(response.body.data)).toBe(true);
+      expect(response.body.data.length).toBeGreaterThan(0);
+
+      for (const faqItem of response.body.data) {
+        expect(faqItem.category).toBe('TATUAJES');
+      }
+    });
+
+    it('debe responder a GET /faqs y GET /requirements para acceso desde el menú principal de la plataforma', async () => {
+      const faqsRes = await request(app.getHttpServer())
+        .get('/faqs')
+        .expect(200);
+
+      expect(faqsRes.body.success).toBe(true);
+      expect(Array.isArray(faqsRes.body.data)).toBe(true);
+      expect(faqsRes.body.data.length).toBeGreaterThan(0);
+
+      const reqsRes = await request(app.getHttpServer())
+        .get('/requirements')
+        .expect(200);
+
+      expect(reqsRes.body.success).toBe(true);
+      expect(Array.isArray(reqsRes.body.data)).toBe(true);
+      expect(reqsRes.body.data.length).toBeGreaterThan(0);
+    });
+  });
 });

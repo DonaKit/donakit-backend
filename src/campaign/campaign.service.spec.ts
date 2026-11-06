@@ -31,6 +31,8 @@ describe('CampaignService', () => {
     findBySlug: vi.fn(),
     updateStatus: vi.fn(),
     update: vi.fn(),
+    findRequirements: vi.fn(),
+    findFaqs: vi.fn(),
   };
 
   const mockAssetRepository = {
@@ -586,6 +588,49 @@ describe('CampaignService', () => {
       await expect(
         service.verifyEditToken(campaignId, 'token-erroneo'),
       ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  describe('getRequirements (US-12)', () => {
+    it('debe obtener los requisitos de la campaña', async () => {
+      const campaign = new CampaignEntity({
+        id: 'c8a48c74-5fe6-4fbb-a862-f35601bed580',
+        institutionId: mockInstitutionId,
+      });
+      mockRepository.findById.mockResolvedValue(campaign);
+      mockRepository.findRequirements.mockResolvedValue([
+        { id: 'req-1', title: 'Edad' },
+      ]);
+
+      const result = await service.getRequirements(campaign.id, 'GENERAL', true);
+      expect(result).toHaveLength(1);
+      expect((result[0] as any).title).toBe('Edad');
+      expect(mockRepository.findRequirements).toHaveBeenCalledWith(
+        mockInstitutionId,
+        'GENERAL',
+        true,
+      );
+    });
+  });
+
+  describe('getFaqs (US-13)', () => {
+    it('debe obtener las FAQs de la campaña', async () => {
+      const campaign = new CampaignEntity({
+        id: 'c8a48c74-5fe6-4fbb-a862-f35601bed580',
+        institutionId: mockInstitutionId,
+      });
+      mockRepository.findById.mockResolvedValue(campaign);
+      mockRepository.findFaqs.mockResolvedValue([
+        { id: 'faq-1', question: '¿Puedo donar?' },
+      ]);
+
+      const result = await service.getFaqs(campaign.id, 'TATUAJES');
+      expect(result).toHaveLength(1);
+      expect((result[0] as any).question).toBe('¿Puedo donar?');
+      expect(mockRepository.findFaqs).toHaveBeenCalledWith(
+        mockInstitutionId,
+        'TATUAJES',
+      );
     });
   });
 });
