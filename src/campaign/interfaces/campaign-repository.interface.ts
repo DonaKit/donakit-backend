@@ -3,6 +3,8 @@ import type {
   institution as InstitutionRecord,
 } from '@prisma/client';
 import type { CampaignEntity } from '../entities/campaign.entity.js';
+import type { FaqItemEntity } from '../entities/faq-item.entity.js';
+import type { RequirementEntity } from '../entities/requirement.entity.js';
 
 export interface CreateCampaignData {
   id?: string;
@@ -40,4 +42,14 @@ export interface ICampaignRepository {
   getInstitutionById(institutionId: string): Promise<InstitutionRecord | null>;
   updateStatus(id: string, status: campaign_status): Promise<CampaignEntity>;
   update(id: string, data: UpdateCampaignData): Promise<CampaignEntity>;
+  findRequirements(
+    institutionId?: string,
+    category?: string,
+    immediateOnly?: boolean,
+  ): Promise<RequirementEntity[]>;
+  findFaqs(
+    institutionId?: string,
+    category?: string,
+  ): Promise<FaqItemEntity[]>;
 }
+

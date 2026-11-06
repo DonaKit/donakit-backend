@@ -243,7 +243,7 @@ Permite visualizar la información de una campaña para los donantes que acceden
 * **Query Params (opcional):** `?editToken=...` (para consultar en modo edición).
 * **Autenticación:** Pública (o restringida con `editToken` en modo edición).
 
-#### Respuesta `200 OK`:
+#### Respuesta `200 OK` (Vista Pública Landing Page):
 ```json
 {
   "success": true,
@@ -252,25 +252,161 @@ Permite visualizar la información de una campaña para los donantes que acceden
     "id": "b73a9e21-4f10-4821-bdfe-7bd73db49b06",
     "institutionId": "63a65bfe-3c92-484e-b658-d3446355e5c2",
     "patientName": "Sofía Agustina Martínez",
-    "bloodType": "A+",
-    "donationType": "Plaquetas",
-    "targetDonors": 15,
+    "bloodType": "0+",
+    "donationType": "Sangre entera",
+    "targetDonors": 10,
     "currentDonors": 0,
-    "deadline": "2026-12-31T00:00:00.000Z",
-    "observations": "Presentarse con DNI en ayuno de grasas.",
-    "generatedCopy": null,
-    "status": "DRAFT",
+    "deadline": "2026-11-20T00:00:00.000Z",
+    "observations": "Presentarse con DNI en el centro de hemoterapia en ayunas de lácteos y grasas.",
+    "generatedCopy": "¡Se necesitan 10 donantes de sangre 0+ para Sofía Martínez!",
+    "status": "ACTIVE",
     "createdAt": "2026-10-28T19:40:00.000Z",
     "updatedAt": "2026-10-28T19:40:00.000Z",
     "institution": {
       "id": "63a65bfe-3c92-484e-b658-d3446355e5c2",
       "name": "Hospital Garrahan - Hemoterapia",
       "address": "Combate de los Pozos 1881",
-      "city": "CABA"
-    }
+      "city": "CABA",
+      "phone": "011 4122-6000",
+      "whatsapp": "+5491120270742",
+      "email": "hemoterapia@garrahan.gov.ar",
+      "websiteUrl": "https://www.garrahan.gov.ar",
+      "requirementsUrl": "https://www.garrahan.gov.ar/donar-sangre",
+      "faqUrl": "https://www.garrahan.gov.ar/preguntas-frecuentes-donacion",
+      "businessHours": {
+        "dias": "Lunes a Viernes",
+        "horario": "07:00 a 18:00",
+        "sabados": "07:00 a 12:00"
+      },
+      "specificRequirements": "Solicitar turno previo en el portal o vía WhatsApp para evitar demoras.",
+      "logoUrl": null
+    },
+    "requirements": [
+      {
+        "id": "73e82cbd-11c5-4533-b025-15ea2f977f60",
+        "institutionId": null,
+        "title": "Edad",
+        "description": "Tener entre 16 y 65 años (menores de 18 con autorización de padres o tutores).",
+        "isImmediateDisqualification": true,
+        "category": "GENERAL",
+        "displayOrder": 1
+      },
+      {
+        "id": "0e2f5ce8-7532-49f5-9cfb-7251b81a1e60",
+        "institutionId": null,
+        "title": "Peso",
+        "description": "Pesar más de 50 kg.",
+        "isImmediateDisqualification": true,
+        "category": "GENERAL",
+        "displayOrder": 2
+      },
+      {
+        "id": "fbe40ae4-1bf0-40d6-a690-bdd753ad6287",
+        "institutionId": null,
+        "title": "Desayuno/Comida previa",
+        "description": "No estar en ayunas total: desayunar té, café, mate o jugo con azúcar y frutas. Evitar grasas y lácteos.",
+        "isImmediateDisqualification": false,
+        "category": "HABITOS",
+        "displayOrder": 3
+      }
+    ],
+    "faqs": [
+      {
+        "id": "b95e8df4-aba5-49dd-a38a-c6bf22269858",
+        "institutionId": null,
+        "question": "¿Puedo donar si tengo tatuajes o piercings?",
+        "answer": "Sí, siempre y cuando hayan transcurrido 6 meses desde que te los hiciste.",
+        "category": "TATUAJES",
+        "displayOrder": 1
+      },
+      {
+        "id": "5d025991-d891-4020-bb8c-8be0aa78eb2c",
+        "institutionId": null,
+        "question": "¿Puedo donar si tomo medicación diaria?",
+        "answer": "La mayoría de medicamentos comunes son compatibles. Consulta en el centro con el nombre del fármaco.",
+        "category": "MEDICACION",
+        "displayOrder": 2
+      },
+      {
+        "id": "edabeef3-551b-4dc3-b0a0-b27e8e6afca8",
+        "institutionId": null,
+        "question": "¿Puedo donar si tuve Hepatitis?",
+        "answer": "Si tuviste Hepatitis A antes de los 10 u 11 años, puedes donar. Hepatitis B o C inhabilitan de forma permanente.",
+        "category": "HEPATITIS",
+        "displayOrder": 3
+      }
+    ],
+    "assets": []
   }
 }
 ```
+
+---
+
+### 3.4.1. Consultar Requisitos de la Campaña (`GET /campaigns/:idOrSlug/requirements`) - US-12
+
+Permite consultar específicamente el listado de requisitos aplicables a la institución de la campaña.
+
+* **Método:** `GET`
+* **Ruta:** `/campaigns/:idOrSlug/requirements`
+* **Query Params (opcionales):**
+  - `category`: Filtra por categoría (`GENERAL`, `HABITOS`, `SALUD`).
+  - `immediateOnly`: Si es `true`, devuelve únicamente las inhabilitaciones inmediatas (ej. edad, peso, cirugías recientes).
+
+#### Respuesta `200 OK`:
+```json
+{
+  "success": true,
+  "message": "Requisitos de donación obtenidos exitosamente.",
+  "data": [
+    {
+      "id": "73e82cbd-11c5-4533-b025-15ea2f977f60",
+      "institutionId": null,
+      "title": "Edad",
+      "description": "Tener entre 16 y 65 años.",
+      "isImmediateDisqualification": true,
+      "category": "GENERAL",
+      "displayOrder": 1
+    }
+  ]
+}
+```
+
+---
+
+### 3.4.2. Consultar Preguntas Frecuentes de la Campaña (`GET /campaigns/:idOrSlug/faqs`) - US-13
+
+Permite consultar las preguntas frecuentes y condiciones médicas asociadas a la campaña.
+
+* **Método:** `GET`
+* **Ruta:** `/campaigns/:idOrSlug/faqs`
+* **Query Params (opcionales):**
+  - `category`: Filtra por categoría médica (`TATUAJES`, `MEDICACION`, `HEPATITIS`, `INTERVENCIONES`, `ESTILO_DE_VIDA`).
+
+#### Respuesta `200 OK`:
+```json
+{
+  "success": true,
+  "message": "Preguntas frecuentes obtenidas exitosamente.",
+  "data": [
+    {
+      "id": "b95e8df4-aba5-49dd-a38a-c6bf22269858",
+      "institutionId": null,
+      "question": "¿Puedo donar si tengo tatuajes o piercings?",
+      "answer": "Sí, habiendo pasado 6 meses.",
+      "category": "TATUAJES",
+      "displayOrder": 1
+    }
+  ]
+}
+```
+
+---
+
+### 3.4.3. Endpoints Globales de Información (Menú Principal de la Plataforma)
+
+* **`GET /faqs`:** Lista las preguntas frecuentes globales del sistema. Acepta query params `?category=...` e `?institutionId=...`.
+* **`GET /requirements`:** Lista los requisitos generales de donación del sistema. Acepta query params `?category=...`, `?immediateOnly=true` e `?institutionId=...`.
 
 #### Errores Comunes:
 * **`404 Not Found` (Campaña inexistente):**

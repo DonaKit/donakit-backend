@@ -138,8 +138,54 @@ export class CampaignController {
   }
 
   /**
+   * Endpoint específico para consultar los requisitos aplicables a la campaña (US-12).
+   * Permite filtrar por categoría o solo inhabilitaciones inmediatas (?immediateOnly=true).
+   */
+  @Get(':idOrSlug/requirements')
+  async getRequirements(
+    @Param('idOrSlug') idOrSlug: string,
+    @Query('category') category?: string,
+    @Query('immediateOnly') immediateOnly?: string,
+  ) {
+    const isImmediate =
+      immediateOnly !== undefined
+        ? immediateOnly === 'true' || immediateOnly === '1'
+        : undefined;
+
+    const requirements = await this.campaignService.getRequirements(
+      idOrSlug,
+      category,
+      isImmediate,
+    );
+
+    return {
+      success: true,
+      message: 'Requisitos de donación obtenidos exitosamente.',
+      data: requirements,
+    };
+  }
+
+  /**
+   * Endpoint específico para consultar las preguntas frecuentes aplicables a la campaña (US-13).
+   * Permite filtrar por categoría (?category=TATUAJES, MEDICACION, HEPATITIS, etc.).
+   */
+  @Get(':idOrSlug/faqs')
+  async getFaqs(
+    @Param('idOrSlug') idOrSlug: string,
+    @Query('category') category?: string,
+  ) {
+    const faqs = await this.campaignService.getFaqs(idOrSlug, category);
+
+    return {
+      success: true,
+      message: 'Preguntas frecuentes obtenidas exitosamente.',
+      data: faqs,
+    };
+  }
+
+  /**
    * Obtiene los detalles de un pedido de donación por su UUID o su slug amigable.
-   * Por defecto responde con el DTO público (sin editToken ni slug).
+   * Por defecto responde con el DTO público enriquecido para la landing page (US-11, US-12, US-13, US-14, US-15).
    * Si se envía el parámetro ?editToken=... válido, responde con la entidad completa para edición.
    */
   @Get(':idOrSlug')

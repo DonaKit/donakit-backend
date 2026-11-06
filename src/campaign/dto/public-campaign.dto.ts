@@ -1,6 +1,8 @@
 import type { campaign_status } from '@prisma/client';
 import type { CampaignAssetEntity } from '../entities/campaign-asset.entity.js';
 import type { InstitutionSummary } from '../entities/campaign.entity.js';
+import type { FaqItemEntity } from '../entities/faq-item.entity.js';
+import type { RequirementEntity } from '../entities/requirement.entity.js';
 
 export class PublicCampaignDto {
   id: string;
@@ -18,6 +20,8 @@ export class PublicCampaignDto {
   updatedAt: Date;
   institution?: InstitutionSummary;
   assets?: CampaignAssetEntity[];
+  requirements?: RequirementEntity[];
+  faqs?: FaqItemEntity[];
 }
 
 export class PublicCampaignResponseDto {

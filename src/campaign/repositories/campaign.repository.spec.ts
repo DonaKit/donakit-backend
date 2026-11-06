@@ -12,10 +12,17 @@ describe('CampaignRepository', () => {
       campaign: {
         create: vi.fn(),
         findUnique: vi.fn(),
+        update: vi.fn(),
       },
       institution: {
         count: vi.fn(),
         findUnique: vi.fn(),
+      },
+      requirement: {
+        findMany: vi.fn().mockResolvedValue([]),
+      },
+      faq_item: {
+        findMany: vi.fn().mockResolvedValue([]),
       },
     };
 
@@ -217,6 +224,47 @@ describe('CampaignRepository', () => {
       expect(result).toBeInstanceOf(CampaignEntity);
       expect(result.patientName).toBe('Paciente Modificado');
       expect(result.bloodType).toBe('0-');
+    });
+  });
+
+  describe('findRequirements', () => {
+    it('debe retornar la lista de requisitos mapeados a entidades', async () => {
+      mockPrisma.requirement.findMany.mockResolvedValue([
+        {
+          id: 'req-1',
+          institution_id: null,
+          title: 'Edad',
+          description: '18 a 65 años',
+          is_immediate_disqualification: true,
+          category: 'GENERAL',
+          display_order: 1,
+        },
+      ]);
+
+      const result = await repository.findRequirements('inst-1', 'GENERAL', true);
+      expect(result).toHaveLength(1);
+      expect(result[0].title).toBe('Edad');
+      expect(result[0].isImmediateDisqualification).toBe(true);
+    });
+  });
+
+  describe('findFaqs', () => {
+    it('debe retornar la lista de FAQs mapeadas a entidades', async () => {
+      mockPrisma.faq_item.findMany.mockResolvedValue([
+        {
+          id: 'faq-1',
+          institution_id: null,
+          question: '¿Puedo donar con tatuaje?',
+          answer: 'Sí, luego de 6 meses.',
+          category: 'TATUAJES',
+          display_order: 1,
+        },
+      ]);
+
+      const result = await repository.findFaqs('inst-1', 'TATUAJES');
+      expect(result).toHaveLength(1);
+      expect(result[0].question).toBe('¿Puedo donar con tatuaje?');
+      expect(result[0].category).toBe('TATUAJES');
     });
   });
 });

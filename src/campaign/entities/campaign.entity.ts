@@ -1,11 +1,22 @@
 import type { campaign_status } from '@prisma/client';
 import type { CampaignAssetEntity } from './campaign-asset.entity.js';
+import type { FaqItemEntity } from './faq-item.entity.js';
+import type { RequirementEntity } from './requirement.entity.js';
 
 export class InstitutionSummary {
   id: string;
   name: string;
   address: string;
   city: string;
+  phone?: string | null;
+  whatsapp?: string | null;
+  email?: string | null;
+  websiteUrl?: string | null;
+  requirementsUrl?: string | null;
+  faqUrl?: string | null;
+  businessHours?: Record<string, any> | null;
+  specificRequirements?: string | null;
+  logoUrl?: string | null;
 }
 
 export class CampaignEntity {
@@ -26,6 +37,8 @@ export class CampaignEntity {
   updatedAt: Date;
   institution?: InstitutionSummary;
   assets?: CampaignAssetEntity[];
+  requirements?: RequirementEntity[];
+  faqs?: FaqItemEntity[];
 
   constructor(partial: Partial<CampaignEntity>) {
     Object.assign(this, partial);
@@ -48,6 +61,9 @@ export class CampaignEntity {
       updatedAt: this.updatedAt,
       institution: this.institution,
       assets: this.assets ?? [],
+      requirements: this.requirements ?? [],
+      faqs: this.faqs ?? [],
     };
   }
 }
+
