@@ -384,6 +384,42 @@ describe('CampaignService', () => {
       );
     });
 
+    it('debe registrar un único evento de tipo ZIP_BUNDLE en download_log si se provee downloadType: "ZIP_BUNDLE" (US-08)', async () => {
+      const mockCampaign = new CampaignEntity({
+        id: campaignId,
+        editToken: validEditToken,
+        status: 'DRAFT',
+      });
+
+      mockRepository.findById.mockResolvedValue(mockCampaign);
+      mockAssetRepository.findByCampaignAndFormat.mockResolvedValue(null);
+      mockStorageService.uploadFile.mockResolvedValue('https://storage/asset.png');
+      mockAssetRepository.save.mockImplementation((d) =>
+        Promise.resolve(new CampaignAssetEntity(d)),
+      );
+      mockDownloadLogRepository.create.mockResolvedValue({ id: 'dl-1' });
+
+      await service.uploadAssets(
+        campaignId,
+        {
+          editToken: validEditToken,
+          downloadType: 'ZIP_BUNDLE',
+          assets: [
+            { format: 'SQUARE_1_1', imageBase64: samplePngBase64 },
+            { format: 'STORY_9_16', imageBase64: samplePngBase64 },
+          ],
+        },
+        '192.168.1.50',
+      );
+
+      expect(mockDownloadLogRepository.create).toHaveBeenCalledTimes(1);
+      expect(mockDownloadLogRepository.create).toHaveBeenCalledWith({
+        campaignId,
+        downloadType: 'ZIP_BUNDLE',
+        ipHash: expect.any(String),
+      });
+    });
+
     it('debe lanzar NotFoundException si la campaña no existe', async () => {
       mockRepository.findById.mockResolvedValue(null);
 

@@ -329,14 +329,26 @@ export class CampaignService {
 
       savedAssets.push(asset);
 
-      // 4. Registrar evento de descarga en download_log si corresponde (US-07/ST-02, ST-03)
-      if (dto.recordDownload !== false) {
+      // 4. Registrar evento de descarga individual en download_log si corresponde (US-07/ST-02, ST-03)
+      if (dto.recordDownload !== false && !dto.downloadType) {
         await this.downloadLogRepository.create({
           campaignId,
           downloadType: ASSET_TO_DOWNLOAD_TYPE[item.format],
           ipHash: hashIp(clientIp),
         });
       }
+    }
+
+    // Si se especificó un downloadType personalizado (ej. ZIP_BUNDLE), registrar una sola vez
+    if (dto.recordDownload !== false && dto.downloadType) {
+      await this.downloadLogRepository.create({
+        campaignId,
+        downloadType: dto.downloadType,
+        ipHash: hashIp(clientIp),
+      });
+      this.logger.log(
+        `Evento de descarga registrado en download_log: type='${dto.downloadType}' para campaña '${campaignId}'`,
+      );
     }
 
     // 5. Guardar texto generado (copy) si se envía junto con las placas

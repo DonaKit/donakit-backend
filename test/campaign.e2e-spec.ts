@@ -651,5 +651,39 @@ describe('CampaignController (e2e) - US-01 / ST-03, ST-04, ST-05', () => {
       expect(updatedCampaignInDb?.status).toBe('ACTIVE');
       expect(updatedCampaignInDb?.campaign_asset).toHaveLength(1);
     });
+
+    it('debe registrar un evento de tipo ZIP_BUNDLE en download_log si se envía downloadType: "ZIP_BUNDLE" (US-08)', async () => {
+      const samplePng =
+        'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+
+      const payload = {
+        editToken: testCampaign.editToken,
+        downloadType: 'ZIP_BUNDLE',
+        assets: [
+          {
+            format: 'STORY_9_16',
+            imageBase64: samplePng,
+          },
+        ],
+      };
+
+      const response = await request(app.getHttpServer())
+        .post(`/campaigns/${testCampaign.id}/assets`)
+        .send(payload)
+        .expect(201);
+
+      expect(response.body.success).toBe(true);
+
+      const logs = await prisma.download_log.findMany({
+        where: {
+          campaign_id: testCampaign.id,
+          download_type: 'ZIP_BUNDLE',
+        },
+      });
+
+      expect(logs.length).toBeGreaterThanOrEqual(1);
+      expect(logs[0].download_type).toBe('ZIP_BUNDLE');
+      expect(logs[0].ip_hash).toBeDefined();
+    });
   });
 });

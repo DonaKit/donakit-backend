@@ -341,6 +341,7 @@ Además, este endpoint cumple las reglas de negocio de la historia de usuario **
 | `editToken` | `string` | **Sí** | Token secreto de edición asignado al crear el pedido. Acepta también `edit_token`. |
 | `generatedCopy` | `string` | No | Texto publicitario (copy) actualizado para compartir en redes. Acepta `generated_copy`. |
 | `recordDownload` | `boolean` | No | Determina si se registra el evento en `download_log`. Por defecto `true`. Acepta también `record_download`. |
+| `downloadType` | `string` | No | Tipo de descarga específico (`IMAGE_1_1`, `IMAGE_9_16`, `PDF_KIT` o `ZIP_BUNDLE`). Acepta `download_type`. Si se envía `ZIP_BUNDLE`, se registra una única descarga de tipo ZIP_BUNDLE en lugar de registrar individualmente cada placa. |
 | `assets` | `array` | **Sí** | Colección de placas generadas (mínimo 1 elemento). Puede contener una sola placa o ambas. |
 | `assets[].format` | `string` | **Sí** | Formato de la placa: `SQUARE_1_1` (feed) o `STORY_9_16` (historia). |
 | `assets[].imageBase64` | `string` | Condicional | Imagen en Base64 (Data URL o Base64 puro). **Obligatoria solo si la placa no fue creada previamente en previsualización**. Acepta también `image_base64`. |
