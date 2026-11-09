@@ -16,7 +16,9 @@ describe('CampaignAssetRepository', () => {
       },
     };
 
-    repository = new CampaignAssetRepository(mockPrisma as unknown as PrismaService);
+    repository = new CampaignAssetRepository(
+      mockPrisma as unknown as PrismaService,
+    );
   });
 
   it('debe crear un nuevo asset si no existe uno previo para ese formato', async () => {
@@ -98,7 +100,10 @@ describe('CampaignAssetRepository', () => {
       created_at: new Date(),
     });
 
-    const result = await repository.findByCampaignAndFormat('campaign-1', 'SQUARE_1_1');
+    const result = await repository.findByCampaignAndFormat(
+      'campaign-1',
+      'SQUARE_1_1',
+    );
     expect(result).not.toBeNull();
     expect(result?.format).toBe('SQUARE_1_1');
   });

@@ -56,4 +56,3 @@ export function parseBase64Image(dataString: string): ParsedImageBuffer {
     );
   }
 }
-

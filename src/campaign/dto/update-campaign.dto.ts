@@ -1,3 +1,4 @@
+import type { campaign_status } from '@prisma/client';
 import { Transform } from 'class-transformer';
 import {
   IsIn,
@@ -23,7 +24,8 @@ export class UpdateCampaignDto {
     typeof value === 'string' ? value.trim() : obj?.edit_token?.trim(),
   )
   @IsNotEmpty({
-    message: 'El editToken es requerido para autorizar la modificación del pedido.',
+    message:
+      'El editToken es requerido para autorizar la modificación del pedido.',
   })
   @IsString({ message: 'El editToken debe ser una cadena de texto válida.' })
   editToken!: string;
@@ -88,7 +90,8 @@ export class UpdateCampaignDto {
   @Transform(({ obj, value }) => {
     const val = value !== undefined ? value : obj?.donation_type;
     if (val === undefined) return undefined;
-    if (val === null || (typeof val === 'string' && val.trim() === '')) return null;
+    if (val === null || (typeof val === 'string' && val.trim() === ''))
+      return null;
     return typeof val === 'string' ? val.trim() : val;
   })
   @ValidateIf((_obj, val) => val !== null && val !== undefined)
@@ -105,7 +108,8 @@ export class UpdateCampaignDto {
   @Transform(({ obj, value }) => {
     const val = value !== undefined ? value : obj?.target_donors;
     if (val === undefined) return undefined;
-    if (val === null || (typeof val === 'string' && val.trim() === '')) return null;
+    if (val === null || (typeof val === 'string' && val.trim() === ''))
+      return null;
     const num = Number(val);
     return Number.isNaN(num) ? val : num;
   })
@@ -126,7 +130,8 @@ export class UpdateCampaignDto {
   @Transform(({ obj, value }) => {
     const val = value !== undefined ? value : obj?.deadline;
     if (val === undefined) return undefined;
-    if (val === null || (typeof val === 'string' && val.trim() === '')) return null;
+    if (val === null || (typeof val === 'string' && val.trim() === ''))
+      return null;
     return typeof val === 'string' ? val.trim() : val;
   })
   @ValidateIf((_obj, val) => val !== null && val !== undefined)
@@ -142,7 +147,8 @@ export class UpdateCampaignDto {
   @Transform(({ obj, value }) => {
     const val = value !== undefined ? value : obj?.observations;
     if (val === undefined) return undefined;
-    if (val === null || (typeof val === 'string' && val.trim() === '')) return null;
+    if (val === null || (typeof val === 'string' && val.trim() === ''))
+      return null;
     return typeof val === 'string' ? val.trim() : val;
   })
   @ValidateIf((_obj, val) => val !== null && val !== undefined)
@@ -159,15 +165,54 @@ export class UpdateCampaignDto {
   @Transform(({ obj, value }) => {
     const val = value !== undefined ? value : obj?.generated_copy;
     if (val === undefined) return undefined;
-    if (val === null || (typeof val === 'string' && val.trim() === '')) return null;
+    if (val === null || (typeof val === 'string' && val.trim() === ''))
+      return null;
     return typeof val === 'string' ? val.trim() : val;
   })
   @ValidateIf((_obj, val) => val !== null && val !== undefined)
-  @IsString({ message: 'El texto generado (copy) debe ser una cadena de texto.' })
+  @IsString({
+    message: 'El texto generado (copy) debe ser una cadena de texto.',
+  })
   @MaxLength(2000, {
     message: 'El texto generado (copy) no puede exceder los 2000 caracteres.',
   })
   generatedCopy?: string | null;
+
+  /**
+   * Estado del pedido de donación (US-16).
+   * Opcional. Permite marcar la campaña como completada ("COMPLETED") una vez cubierta la necesidad,
+   * reactivarla ("ACTIVE") o cancelarla ("CANCELLED").
+   */
+  @Transform(({ obj, value }) => {
+    const val = value !== undefined ? value : obj?.status;
+    return typeof val === 'string' ? val.trim().toUpperCase() : val;
+  })
+  @ValidateIf((_obj, val) => val !== undefined)
+  @IsIn(['ACTIVE', 'COMPLETED', 'EXPIRED', 'CANCELLED', 'DRAFT'], {
+    message:
+      'El estado debe ser uno de los permitidos: ACTIVE, COMPLETED, EXPIRED, CANCELLED o DRAFT.',
+  })
+  status?: campaign_status;
+
+  /**
+   * Cantidad actual de donantes conseguidos hasta la fecha (US-16, US-20).
+   * Opcional. Permite actualizar el avance hacia la meta requerida.
+   */
+  @Transform(({ obj, value }) => {
+    const val = value !== undefined ? value : obj?.current_donors;
+    if (val === undefined) return undefined;
+    const num = Number(val);
+    return Number.isNaN(num) ? val : num;
+  })
+  @ValidateIf((_obj, val) => val !== undefined)
+  @IsInt({
+    message: 'La cantidad actual de donantes debe ser un número entero.',
+  })
+  @Min(0, {
+    message: 'La cantidad actual de donantes no puede ser negativa.',
+  })
+  @Max(1000, {
+    message: 'La cantidad actual de donantes no puede exceder los 1000.',
+  })
+  currentDonors?: number;
 }
-
-

@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
+import type { Prisma, campaign_status } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service.js';
+import type { CampaignDashboardItemDto } from '../dto/campaign-dashboard-item.dto.js';
 import { CampaignAssetEntity } from '../entities/campaign-asset.entity.js';
 import { CampaignEntity } from '../entities/campaign.entity.js';
 import { FaqItemEntity } from '../entities/faq-item.entity.js';
@@ -87,12 +88,17 @@ export class CampaignRepository implements ICampaignRepository {
       return null;
     }
 
-    const [requirements, faqs] = await Promise.all([
+    const [requirements, faqs, totalVisits] = await Promise.all([
       this.findRequirements(record.institution_id),
       this.findFaqs(record.institution_id),
+      this.prisma.campaign_metric?.count
+        ? this.prisma.campaign_metric.count({
+            where: { campaign_id: record.id },
+          })
+        : Promise.resolve(0),
     ]);
 
-    return this.mapToEntity(record, requirements, faqs);
+    return this.mapToEntity(record, requirements, faqs, totalVisits);
   }
 
   /**
@@ -113,12 +119,87 @@ export class CampaignRepository implements ICampaignRepository {
       return null;
     }
 
-    const [requirements, faqs] = await Promise.all([
+    const [requirements, faqs, totalVisits] = await Promise.all([
       this.findRequirements(record.institution_id),
       this.findFaqs(record.institution_id),
+      this.prisma.campaign_metric?.count
+        ? this.prisma.campaign_metric.count({
+            where: { campaign_id: record.id },
+          })
+        : Promise.resolve(0),
     ]);
 
-    return this.mapToEntity(record, requirements, faqs);
+    return this.mapToEntity(record, requirements, faqs, totalVisits);
+  }
+
+  /**
+   * Consulta las campañas activas o filtradas para el panel administrativo (US-20).
+   * Incluye datos clave y el conteo de visitas mediante _count optimizado.
+   */
+  async findDashboardCampaigns(options: {
+    institutionId?: string;
+    status?: campaign_status | 'ALL';
+  }): Promise<CampaignDashboardItemDto[]> {
+    const where: Prisma.campaignWhereInput = {
+      ...(options.institutionId
+        ? { institution_id: options.institutionId }
+        : {}),
+      ...(options.status && options.status !== 'ALL'
+        ? { status: options.status as campaign_status }
+        : options.status === 'ALL'
+          ? {}
+          : { status: 'ACTIVE' }),
+    };
+
+    const records = await this.prisma.campaign.findMany({
+      where,
+      include: {
+        institution: {
+          select: {
+            id: true,
+            name: true,
+            city: true,
+          },
+        },
+        _count: {
+          select: {
+            campaign_metric: true,
+          },
+        },
+      },
+      orderBy: { created_at: 'desc' },
+    });
+
+    return records.map((record) => {
+      const target = record.target_donors;
+      const current = record.current_donors ?? 0;
+      const progressPercentage =
+        target && target > 0
+          ? Math.min(100, Math.round((current / target) * 100))
+          : null;
+
+      return {
+        id: record.id,
+        slug: record.slug,
+        patientName: record.patient_name,
+        bloodType: record.blood_type,
+        donationType: record.donation_type,
+        status: record.status,
+        createdAt: record.created_at,
+        deadline: record.deadline,
+        targetDonors: record.target_donors,
+        currentDonors: record.current_donors,
+        progressPercentage,
+        totalVisits: record._count?.campaign_metric ?? 0,
+        institution: record.institution
+          ? {
+              id: record.institution.id,
+              name: record.institution.name,
+              city: record.institution.city,
+            }
+          : null,
+      };
+    });
   }
 
   /**
@@ -135,7 +216,9 @@ export class CampaignRepository implements ICampaignRepository {
             OR: [{ institution_id: null }, { institution_id: institutionId }],
           }
         : { institution_id: null }),
-      ...(category ? { category: { equals: category, mode: 'insensitive' } } : {}),
+      ...(category
+        ? { category: { equals: category, mode: 'insensitive' } }
+        : {}),
       ...(immediateOnly !== undefined
         ? { is_immediate_disqualification: immediateOnly }
         : {}),
@@ -173,7 +256,9 @@ export class CampaignRepository implements ICampaignRepository {
             OR: [{ institution_id: null }, { institution_id: institutionId }],
           }
         : { institution_id: null }),
-      ...(category ? { category: { equals: category, mode: 'insensitive' } } : {}),
+      ...(category
+        ? { category: { equals: category, mode: 'insensitive' } }
+        : {}),
     };
 
     const records = await this.prisma.faq_item.findMany({
@@ -243,17 +328,28 @@ export class CampaignRepository implements ICampaignRepository {
    */
   async update(id: string, data: UpdateCampaignData): Promise<CampaignEntity> {
     const prismaUpdateData: Prisma.campaignUpdateInput = {
-      ...(data.patientName !== undefined ? { patient_name: data.patientName } : {}),
+      ...(data.patientName !== undefined
+        ? { patient_name: data.patientName }
+        : {}),
       ...(data.slug !== undefined ? { slug: data.slug } : {}),
       ...(data.bloodType !== undefined ? { blood_type: data.bloodType } : {}),
-      ...(data.donationType !== undefined ? { donation_type: data.donationType } : {}),
-      ...(data.targetDonors !== undefined ? { target_donors: data.targetDonors } : {}),
+      ...(data.donationType !== undefined
+        ? { donation_type: data.donationType }
+        : {}),
+      ...(data.targetDonors !== undefined
+        ? { target_donors: data.targetDonors }
+        : {}),
       ...(data.deadline !== undefined ? { deadline: data.deadline } : {}),
-      ...(data.observations !== undefined ? { observations: data.observations } : {}),
+      ...(data.observations !== undefined
+        ? { observations: data.observations }
+        : {}),
       ...(data.generatedCopy !== undefined
         ? { generated_copy: data.generatedCopy }
         : {}),
       ...(data.status !== undefined ? { status: data.status } : {}),
+      ...(data.currentDonors !== undefined
+        ? { current_donors: data.currentDonors }
+        : {}),
       ...(data.institutionId !== undefined
         ? {
             institution: {
@@ -285,6 +381,7 @@ export class CampaignRepository implements ICampaignRepository {
     record: any,
     requirements: RequirementEntity[] = [],
     faqs: FaqItemEntity[] = [],
+    totalVisits = 0,
   ): CampaignEntity {
     return new CampaignEntity({
       id: record.id,
@@ -302,6 +399,7 @@ export class CampaignRepository implements ICampaignRepository {
       status: record.status,
       createdAt: record.created_at,
       updatedAt: record.updated_at,
+      totalVisits,
       institution: record.institution
         ? {
             id: record.institution.id,
@@ -339,4 +437,3 @@ export class CampaignRepository implements ICampaignRepository {
     });
   }
 }
-

@@ -2,6 +2,7 @@ import type {
   campaign_status,
   institution as InstitutionRecord,
 } from '@prisma/client';
+import type { CampaignDashboardItemDto } from '../dto/campaign-dashboard-item.dto.js';
 import type { CampaignEntity } from '../entities/campaign.entity.js';
 import type { FaqItemEntity } from '../entities/faq-item.entity.js';
 import type { RequirementEntity } from '../entities/requirement.entity.js';
@@ -28,6 +29,7 @@ export interface UpdateCampaignData {
   bloodType?: string;
   donationType?: string | null;
   targetDonors?: number | null;
+  currentDonors?: number;
   deadline?: Date | null;
   observations?: string | null;
   generatedCopy?: string | null;
@@ -47,9 +49,9 @@ export interface ICampaignRepository {
     category?: string,
     immediateOnly?: boolean,
   ): Promise<RequirementEntity[]>;
-  findFaqs(
-    institutionId?: string,
-    category?: string,
-  ): Promise<FaqItemEntity[]>;
+  findFaqs(institutionId?: string, category?: string): Promise<FaqItemEntity[]>;
+  findDashboardCampaigns(options: {
+    institutionId?: string;
+    status?: campaign_status | 'ALL';
+  }): Promise<CampaignDashboardItemDto[]>;
 }
-

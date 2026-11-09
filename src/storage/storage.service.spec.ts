@@ -11,7 +11,10 @@ describe('StorageService', () => {
         from: vi.fn().mockReturnValue({
           upload: vi.fn().mockResolvedValue({ error: null }),
           getPublicUrl: vi.fn().mockReturnValue({
-            data: { publicUrl: 'https://example.supabase.co/storage/v1/object/public/campaign-assets/test.png' },
+            data: {
+              publicUrl:
+                'https://example.supabase.co/storage/v1/object/public/campaign-assets/test.png',
+            },
           }),
           download: vi.fn(),
         }),
@@ -29,17 +32,23 @@ describe('StorageService', () => {
     const url = await service.uploadFile(path, buffer, 'image/png');
 
     expect(mockSupabase.storage.from).toHaveBeenCalledWith('campaign-assets');
-    expect(url).toBe('https://example.supabase.co/storage/v1/object/public/campaign-assets/test.png');
+    expect(url).toBe(
+      'https://example.supabase.co/storage/v1/object/public/campaign-assets/test.png',
+    );
   });
 
   it('debe lanzar una excepción si la subida a Storage falla', async () => {
     mockSupabase.storage.from.mockReturnValue({
-      upload: vi.fn().mockResolvedValue({ error: new Error('Bucket not found') }),
+      upload: vi
+        .fn()
+        .mockResolvedValue({ error: new Error('Bucket not found') }),
       getPublicUrl: vi.fn(),
     });
 
     const buffer = Buffer.from('fake-png-content');
-    await expect(service.uploadFile('test.png', buffer)).rejects.toThrow('Bucket not found');
+    await expect(service.uploadFile('test.png', buffer)).rejects.toThrow(
+      'Bucket not found',
+    );
   });
 
   it('isSameFile debe retornar true si el archivo existe en storage y tiene el mismo contenido', async () => {

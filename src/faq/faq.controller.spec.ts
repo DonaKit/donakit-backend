@@ -28,4 +28,3 @@ describe('FaqController', () => {
     expect(result.data).toHaveLength(1);
   });
 });
-

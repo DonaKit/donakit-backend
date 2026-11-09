@@ -17,9 +17,7 @@ describe('RequirementController', () => {
   });
 
   it('debe responder con los requisitos obtenidos del servicio', async () => {
-    mockService.findAll.mockResolvedValue([
-      { id: 'req-1', title: 'Edad' },
-    ]);
+    mockService.findAll.mockResolvedValue([{ id: 'req-1', title: 'Edad' }]);
 
     const result = await controller.findAll('GENERAL', 'true', 'inst-1');
 
@@ -28,4 +26,3 @@ describe('RequirementController', () => {
     expect(result.data).toHaveLength(1);
   });
 });
-

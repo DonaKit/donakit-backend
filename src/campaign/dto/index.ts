@@ -5,3 +5,5 @@ export * from './campaign-response.dto.js';
 export * from './public-campaign.dto.js';
 export * from './upload-campaign-assets.dto.js';
 export * from './campaign-assets-response.dto.js';
+export * from './campaign-dashboard-item.dto.js';
+export * from './admin-update-campaign.dto.js';

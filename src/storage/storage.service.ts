@@ -115,7 +115,9 @@ export class StorageService {
       .from(this.bucketName)
       .getPublicUrl(path);
 
-    this.logger.log(`Archivo subido exitosamente. URL pública: ${data.publicUrl}`);
+    this.logger.log(
+      `Archivo subido exitosamente. URL pública: ${data.publicUrl}`,
+    );
     return data.publicUrl;
   }
 }

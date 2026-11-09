@@ -15,7 +15,9 @@ describe('DownloadLogRepository', () => {
       },
     };
 
-    repository = new DownloadLogRepository(mockPrisma as unknown as PrismaService);
+    repository = new DownloadLogRepository(
+      mockPrisma as unknown as PrismaService,
+    );
   });
 
   it('debe registrar un evento de descarga en download_log', async () => {
@@ -50,4 +52,3 @@ describe('DownloadLogRepository', () => {
     expect(count).toBe(5);
   });
 });
-

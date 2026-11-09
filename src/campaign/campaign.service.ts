@@ -6,17 +6,24 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import type { asset_format, download_type } from '@prisma/client';
+import type {
+  asset_format,
+  campaign_status,
+  download_type,
+} from '@prisma/client';
 import { InstitutionNotFoundException } from '../common/exceptions/institution-not-found.exception.js';
 import { StorageService } from '../storage/storage.service.js';
+import type { AdminUpdateCampaignDto } from './dto/admin-update-campaign.dto.js';
 import type { CreateCampaignDto } from './dto/create-campaign.dto.js';
 import type { UpdateCampaignDto } from './dto/update-campaign.dto.js';
 import type { UploadCampaignAssetsDto } from './dto/upload-campaign-assets.dto.js';
 import { CampaignAssetEntity } from './entities/campaign-asset.entity.js';
 import { CampaignEntity } from './entities/campaign.entity.js';
+import type { CampaignDashboardItemDto } from './dto/campaign-dashboard-item.dto.js';
 import type { FaqItemEntity } from './entities/faq-item.entity.js';
 import type { RequirementEntity } from './entities/requirement.entity.js';
 import { CampaignAssetRepository } from './repositories/campaign-asset.repository.js';
+import { CampaignMetricRepository } from './repositories/campaign-metric.repository.js';
 import { CampaignRepository } from './repositories/campaign.repository.js';
 import { DownloadLogRepository } from './repositories/download-log.repository.js';
 import { parseBase64Image } from './utils/base64-image.util.js';
@@ -40,7 +47,8 @@ export class CampaignService {
     private readonly campaignAssetRepository: CampaignAssetRepository,
     private readonly downloadLogRepository: DownloadLogRepository,
     private readonly storageService: StorageService,
-  ) { }
+    private readonly campaignMetricRepository?: CampaignMetricRepository,
+  ) {}
 
   /**
    * Crea un nuevo pedido básico de donación persistiendo en Supabase con UUID y slug único.
@@ -148,15 +156,221 @@ export class CampaignService {
   /**
    * Obtiene las preguntas frecuentes aplicables a un pedido de donación (US-13).
    */
-  async getFaqs(
-    idOrSlug: string,
-    category?: string,
-  ): Promise<FaqItemEntity[]> {
+  async getFaqs(idOrSlug: string, category?: string): Promise<FaqItemEntity[]> {
     const campaign = await this.findByIdOrSlug(idOrSlug);
-    return this.campaignRepository.findFaqs(
-      campaign.institutionId,
-      category,
+    return this.campaignRepository.findFaqs(campaign.institutionId, category);
+  }
+
+  /**
+   * Registra una visita en la landing page de la campaña (US-19).
+   */
+  async recordVisit(
+    campaignId: string,
+    clientIp?: string | null,
+    userAgent?: string | null,
+    referrer?: string | null,
+  ): Promise<void> {
+    try {
+      if (!this.campaignMetricRepository) return;
+      const deviceType = this.resolveDeviceType(userAgent);
+      const ipHash = hashIp(clientIp);
+
+      await this.campaignMetricRepository.create({
+        campaignId,
+        deviceType,
+        referrer: referrer || 'DIRECT',
+        ipHash,
+      });
+
+      this.logger.log(
+        `Métrica de visita registrada para campaña '${campaignId}' (${deviceType}, ${referrer || 'DIRECT'})`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Error al registrar métrica de visita para campaña '${campaignId}':`,
+        error,
+      );
+    }
+  }
+
+  /**
+   * Resuelve el tipo de dispositivo a partir del User-Agent.
+   */
+  resolveDeviceType(userAgent?: string | null): string {
+    if (!userAgent) return 'UNKNOWN';
+    if (/tablet|ipad/i.test(userAgent)) return 'TABLET';
+    if (/mobile|android|iphone/i.test(userAgent)) return 'MOBILE';
+    return 'DESKTOP';
+  }
+
+  /**
+   * Obtiene la cantidad total de visitas de una campaña (US-19).
+   */
+  async getVisitCount(campaignId: string): Promise<number> {
+    if (!this.campaignMetricRepository) return 0;
+    return this.campaignMetricRepository.countByCampaignId(campaignId);
+  }
+
+  /**
+   * Consulta las campañas para el panel de la institución / dashboard (US-20).
+   * Devuelve las métricas de visitas acumuladas y datos clave de cada campaña.
+   */
+  async findDashboardCampaigns(options: {
+    institutionId?: string;
+    status?: string;
+  }): Promise<CampaignDashboardItemDto[]> {
+    if (options.institutionId) {
+      const institutionExists = await this.campaignRepository.institutionExists(
+        options.institutionId,
+      );
+      if (!institutionExists) {
+        throw new InstitutionNotFoundException(options.institutionId);
+      }
+    }
+
+    const normalizedStatus = options.status
+      ? (options.status.toUpperCase() as campaign_status | 'ALL')
+      : 'ACTIVE';
+
+    return this.campaignRepository.findDashboardCampaigns({
+      institutionId: options.institutionId,
+      status: normalizedStatus,
+    });
+  }
+
+  /**
+   * Obtiene una campaña desde la perspectiva administrativa de la institución.
+   * Valida que la campaña pertenezca a la institución indicada y retorna la entidad completa (con totalVisits).
+   */
+  async adminFindOne(
+    institutionId: string,
+    campaignId: string,
+  ): Promise<CampaignEntity> {
+    const institutionExists =
+      await this.campaignRepository.institutionExists(institutionId);
+    if (!institutionExists) {
+      throw new InstitutionNotFoundException(institutionId);
+    }
+
+    const campaign = await this.findById(campaignId);
+    if (campaign.institutionId !== institutionId) {
+      throw new ForbiddenException(
+        'La campaña no pertenece a la institución especificada.',
+      );
+    }
+
+    return campaign;
+  }
+
+  /**
+   * Actualiza los datos de una campaña desde el panel de la institución (US-16, US-20).
+   * Permite cerrar la campaña (status: COMPLETED), sumar o ajustar donantes (currentDonors),
+   * modificar metas, plazos u observaciones sin requerir el editToken del difusor.
+   */
+  async adminUpdate(
+    institutionId: string,
+    campaignId: string,
+    dto: AdminUpdateCampaignDto,
+  ): Promise<CampaignEntity> {
+    this.logger.log(
+      `Iniciando actualización administrativa de campaña '${campaignId}' por institución '${institutionId}'`,
     );
+
+    // 1. Validar existencia y pertenencia a la institución
+    const campaign = await this.adminFindOne(institutionId, campaignId);
+
+    // 2. Calcular nueva cantidad de donantes si se envía incremento o fijación directa
+    let newCurrentDonors: number | undefined;
+    if (dto.incrementDonors !== undefined) {
+      newCurrentDonors = (campaign.currentDonors ?? 0) + dto.incrementDonors;
+    } else if (dto.currentDonors !== undefined) {
+      newCurrentDonors = dto.currentDonors;
+    }
+
+    // 3. Manejo de cambio de nombre de paciente (regeneración de slug si aplica)
+    let newSlug: string | undefined;
+    if (dto.patientName && dto.patientName !== campaign.patientName) {
+      let slugCandidate = generateCampaignSlug(dto.patientName);
+      let attempts = 0;
+      const MAX_SLUG_ATTEMPTS = 5;
+
+      while (attempts < MAX_SLUG_ATTEMPTS) {
+        const existingWithSlug =
+          await this.campaignRepository.findBySlug(slugCandidate);
+        if (!existingWithSlug || existingWithSlug.id === campaignId) {
+          newSlug = slugCandidate;
+          break;
+        }
+        attempts++;
+        slugCandidate = generateCampaignSlug(dto.patientName);
+      }
+
+      if (!newSlug) {
+        throw new BadRequestException(
+          'No se pudo generar un slug único para el nuevo nombre del paciente. Por favor intente nuevamente.',
+        );
+      }
+    }
+
+    // 4. Parsear deadline si fue provisto
+    let deadlineDate: Date | null | undefined = undefined;
+    if (dto.deadline !== undefined) {
+      if (dto.deadline === null) {
+        deadlineDate = null;
+      } else {
+        const parsed = new Date(dto.deadline);
+        if (Number.isNaN(parsed.getTime())) {
+          throw new BadRequestException(
+            'El formato de la fecha límite no es válido (use ISO 8601 o YYYY-MM-DD).',
+          );
+        }
+        deadlineDate = parsed;
+      }
+    }
+
+    // 5. Determinar estado de la campaña (Cierre automático si alcanza la meta o explícito)
+    const effectiveTarget =
+      dto.targetDonors !== undefined
+        ? dto.targetDonors
+        : campaign.targetDonors;
+
+    let resolvedStatus = dto.status;
+    if (
+      resolvedStatus === undefined &&
+      campaign.status === 'ACTIVE' &&
+      effectiveTarget !== null &&
+      effectiveTarget !== undefined &&
+      effectiveTarget > 0 &&
+      newCurrentDonors !== undefined &&
+      newCurrentDonors >= effectiveTarget
+    ) {
+      resolvedStatus = 'COMPLETED';
+      this.logger.log(
+        `Meta alcanzada para campaña '${campaignId}' (${newCurrentDonors}/${effectiveTarget}). Estado actualizado automáticamente a 'COMPLETED'.`,
+      );
+    }
+
+    // 6. Persistir cambios en el repositorio
+    const updated = await this.campaignRepository.update(campaignId, {
+      patientName: dto.patientName,
+      slug: newSlug,
+      bloodType: dto.bloodType,
+      donationType: dto.donationType,
+      targetDonors: dto.targetDonors,
+      currentDonors: newCurrentDonors,
+      deadline: deadlineDate,
+      observations: dto.observations,
+      status: resolvedStatus,
+    });
+
+    // 7. Asignar totalVisits calculado para la respuesta completa
+    const totalVisits = await this.getVisitCount(campaignId);
+    updated.totalVisits = totalVisits;
+
+    this.logger.log(
+      `Campaña '${campaignId}' actualizada administrativamente por institución exitosamente.`,
+    );
+    return updated;
   }
 
   /**
@@ -230,7 +444,29 @@ export class CampaignService {
       }
     }
 
-    // 7. Persistir cambios en el repositorio
+    // 7. Determinar estado de la campaña (Cierre automático si alcanza la meta o explícito)
+    const effectiveTarget =
+      dto.targetDonors !== undefined
+        ? dto.targetDonors
+        : campaign.targetDonors;
+
+    let resolvedStatus = dto.status;
+    if (
+      resolvedStatus === undefined &&
+      campaign.status === 'ACTIVE' &&
+      effectiveTarget !== null &&
+      effectiveTarget !== undefined &&
+      effectiveTarget > 0 &&
+      dto.currentDonors !== undefined &&
+      dto.currentDonors >= effectiveTarget
+    ) {
+      resolvedStatus = 'COMPLETED';
+      this.logger.log(
+        `Meta alcanzada para campaña '${id}' (${dto.currentDonors}/${effectiveTarget}). Estado actualizado automáticamente a 'COMPLETED'.`,
+      );
+    }
+
+    // 8. Persistir cambios en el repositorio
     const updated = await this.campaignRepository.update(id, {
       patientName: dto.patientName,
       slug: newSlug,
@@ -238,9 +474,11 @@ export class CampaignService {
       bloodType: dto.bloodType,
       donationType: dto.donationType,
       targetDonors: dto.targetDonors,
+      currentDonors: dto.currentDonors,
       deadline: deadlineDate,
       observations: dto.observations,
       generatedCopy: dto.generatedCopy,
+      status: resolvedStatus,
     });
 
     this.logger.log(`Pedido de donación '${id}' actualizado exitosamente.`);
@@ -251,7 +489,10 @@ export class CampaignService {
    * Valida si un editToken es válido para una campaña dada y devuelve la entidad completa.
    * Utilizado para verificar autorizaciones y precargar formularios al reingresar.
    */
-  async verifyEditToken(id: string, editToken: string): Promise<CampaignEntity> {
+  async verifyEditToken(
+    id: string,
+    editToken: string,
+  ): Promise<CampaignEntity> {
     const campaign = await this.findById(id);
     if (campaign.editToken !== editToken) {
       this.logger.warn(

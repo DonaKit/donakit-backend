@@ -40,8 +40,12 @@ export class CampaignAssetItemDto {
    */
   @Transform(({ obj, value }) => value ?? obj?.image_base64)
   @IsOptional()
-  @IsNotEmpty({ message: 'La imagen en Base64 no puede estar vacía si se envía.' })
-  @IsString({ message: 'La imagen en Base64 debe ser una cadena de texto válida.' })
+  @IsNotEmpty({
+    message: 'La imagen en Base64 no puede estar vacía si se envía.',
+  })
+  @IsString({
+    message: 'La imagen en Base64 debe ser una cadena de texto válida.',
+  })
   imageBase64?: string;
 
   /**
@@ -77,9 +81,13 @@ export class UploadCampaignAssetsDto {
   /**
    * Colección de placas generadas a almacenar/descargar (puede ser una o todas).
    */
-  @Transform(({ value }) => (Array.isArray(value) ? value : value ? [value] : []))
+  @Transform(({ value }) =>
+    Array.isArray(value) ? value : value ? [value] : [],
+  )
   @IsArray({ message: 'Las placas deben enviarse en una lista (array).' })
-  @ArrayMinSize(1, { message: 'Debe enviarse al menos una placa para registrar.' })
+  @ArrayMinSize(1, {
+    message: 'Debe enviarse al menos una placa para registrar.',
+  })
   @ValidateNested({ each: true })
   @Type(() => CampaignAssetItemDto)
   assets!: CampaignAssetItemDto[];
@@ -106,7 +114,9 @@ export class UploadCampaignAssetsDto {
     return typeof val === 'string' ? val.trim() : val;
   })
   @IsOptional()
-  @IsString({ message: 'El texto generado (copy) debe ser una cadena de texto.' })
+  @IsString({
+    message: 'El texto generado (copy) debe ser una cadena de texto.',
+  })
   generatedCopy?: string;
 
   /**

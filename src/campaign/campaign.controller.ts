@@ -15,6 +15,7 @@ import {
 import type { Request } from 'express';
 import { CampaignService } from './campaign.service.js';
 import { CampaignAssetsResponseDto } from './dto/campaign-assets-response.dto.js';
+import { CampaignDashboardResponseDto } from './dto/campaign-dashboard-item.dto.js';
 import { CampaignResponseDto } from './dto/campaign-response.dto.js';
 import { CreateCampaignDto } from './dto/create-campaign.dto.js';
 import { PublicCampaignResponseDto } from './dto/public-campaign.dto.js';
@@ -184,14 +185,107 @@ export class CampaignController {
   }
 
   /**
+   * Endpoint específico para registrar una visita en la landing page (US-19).
+   * Permite registrar explícitamente el evento tras cargar la página.
+   */
+  @Post(':idOrSlug/visit')
+  @HttpCode(HttpStatus.OK)
+  async recordVisit(
+    @Param('idOrSlug') idOrSlug: string,
+    @Req() req: Request,
+    @Body('referrer') bodyReferrer?: string,
+  ) {
+    const campaign = await this.campaignService.findByIdOrSlug(idOrSlug);
+
+    const clientIp =
+      (req.headers?.['x-forwarded-for'] as string)?.split(',')[0].trim() ||
+      req.ip ||
+      req.socket?.remoteAddress;
+    const userAgent = req.headers?.['user-agent'] as string | undefined;
+    const referrer =
+      bodyReferrer ||
+      (req.query?.referrer as string) ||
+      (req.headers?.['referer'] as string) ||
+      (req.headers?.['referrer'] as string) ||
+      'DIRECT';
+
+    await this.campaignService.recordVisit(
+      campaign.id,
+      clientIp,
+      userAgent,
+      referrer,
+    );
+
+    return {
+      success: true,
+      message: 'Visita registrada exitosamente.',
+    };
+  }
+
+  /**
+   * Endpoint para consultar el contador de visitas de una campaña (US-19).
+   * Requiere el editToken para garantizar que solo la institución o difusor autorizado acceda.
+   */
+  @Get(':idOrSlug/metrics')
+  async getMetrics(
+    @Param('idOrSlug') idOrSlug: string,
+    @Query('editToken') editToken?: string,
+  ) {
+    const campaign = await this.campaignService.findByIdOrSlug(idOrSlug);
+
+    if (!editToken || campaign.editToken !== editToken.trim()) {
+      throw new ForbiddenException(
+        'El editToken es requerido y debe ser válido para consultar las métricas de la campaña.',
+      );
+    }
+
+    const totalVisits = await this.campaignService.getVisitCount(campaign.id);
+
+    return {
+      success: true,
+      message: 'Métricas de campaña obtenidas exitosamente.',
+      data: {
+        campaignId: campaign.id,
+        totalVisits,
+      },
+    };
+  }
+
+  /**
+   * Endpoint para listar las campañas en el panel de reportería / dashboard (US-20).
+   * Devuelve las solicitudes y campañas activas con información clave:
+   * nombre del paciente, fechas, estado, avance de donantes y total de visitas.
+   */
+  @Get()
+  async findDashboard(
+    @Query('institutionId') institutionId?: string,
+    @Query('status') status?: string,
+  ): Promise<CampaignDashboardResponseDto> {
+    const campaigns = await this.campaignService.findDashboardCampaigns({
+      institutionId,
+      status,
+    });
+
+    return {
+      success: true,
+      message:
+        'Listado de campañas para panel administrativo obtenido exitosamente.',
+      data: campaigns,
+      total: campaigns.length,
+    };
+  }
+
+  /**
    * Obtiene los detalles de un pedido de donación por su UUID o su slug amigable.
-   * Por defecto responde con el DTO público enriquecido para la landing page (US-11, US-12, US-13, US-14, US-15).
+   * Por defecto responde con el DTO público enriquecido para la landing page (US-11, US-12, US-13, US-14, US-15, US-19).
    * Si se envía el parámetro ?editToken=... válido, responde con la entidad completa para edición.
+   * Registra automáticamente el evento de visita si es una consulta pública (US-19).
    */
   @Get(':idOrSlug')
   async findOne(
     @Param('idOrSlug') idOrSlug: string,
     @Query('editToken') editToken?: string,
+    @Req() req?: Request,
   ): Promise<PublicCampaignResponseDto | CampaignResponseDto> {
     const isUuid = UUID_V4_REGEX.test(idOrSlug);
     const campaign = isUuid
@@ -209,6 +303,28 @@ export class CampaignController {
         message: 'Pedido de donación obtenido exitosamente en modo edición.',
         data: campaign,
       };
+    }
+
+    // US-19: Registrar evento de visita anónima al cargar la página pública
+    if (req) {
+      const clientIp =
+        (req.headers?.['x-forwarded-for'] as string)?.split(',')[0].trim() ||
+        req.ip ||
+        req.socket?.remoteAddress;
+      const userAgent = req.headers?.['user-agent'] as string | undefined;
+      const rawReferrer =
+        (req.query?.referrer as string) ||
+        (req.query?.from as string) ||
+        (req.headers?.['referer'] as string) ||
+        (req.headers?.['referrer'] as string) ||
+        'DIRECT';
+
+      void this.campaignService.recordVisit(
+        campaign.id,
+        clientIp,
+        userAgent,
+        rawReferrer,
+      );
     }
 
     return {

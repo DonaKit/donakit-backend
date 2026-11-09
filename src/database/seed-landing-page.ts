@@ -3,7 +3,9 @@ import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 
 async function seed() {
-  console.log('--- Verificando y poblando Requisitos y FAQs para Landing Page ---');
+  console.log(
+    '--- Verificando y poblando Requisitos y FAQs para Landing Page ---',
+  );
 
   // 1. Requisitos adicionales de salud
   const existingReqFiebre = await prisma.requirement.findFirst({
@@ -50,7 +52,8 @@ async function seed() {
   if (!existingFaqCirugias) {
     await prisma.faq_item.create({
       data: {
-        question: '¿Puedo donar si me operé o me hice una endoscopía recientemente?',
+        question:
+          '¿Puedo donar si me operé o me hice una endoscopía recientemente?',
         answer:
           'Debes esperar al menos 6 meses posteriores a cualquier cirugía mayor o estudio endoscópico para asegurar una recuperación completa.',
         category: 'INTERVENCIONES',
@@ -85,4 +88,3 @@ seed().catch((err) => {
   console.error('Error al inicializar seed:', err);
   process.exit(1);
 });
-

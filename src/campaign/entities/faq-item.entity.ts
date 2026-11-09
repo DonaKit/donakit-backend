@@ -10,4 +10,3 @@ export class FaqItemEntity {
     Object.assign(this, partial);
   }
 }
-

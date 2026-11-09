@@ -12,6 +12,7 @@ describe('CampaignRepository', () => {
       campaign: {
         create: vi.fn(),
         findUnique: vi.fn(),
+        findMany: vi.fn(),
         update: vi.fn(),
       },
       institution: {
@@ -23,6 +24,9 @@ describe('CampaignRepository', () => {
       },
       faq_item: {
         findMany: vi.fn().mockResolvedValue([]),
+      },
+      campaign_metric: {
+        count: vi.fn().mockResolvedValue(0),
       },
     };
 
@@ -241,7 +245,11 @@ describe('CampaignRepository', () => {
         },
       ]);
 
-      const result = await repository.findRequirements('inst-1', 'GENERAL', true);
+      const result = await repository.findRequirements(
+        'inst-1',
+        'GENERAL',
+        true,
+      );
       expect(result).toHaveLength(1);
       expect(result[0].title).toBe('Edad');
       expect(result[0].isImmediateDisqualification).toBe(true);
@@ -265,6 +273,67 @@ describe('CampaignRepository', () => {
       expect(result).toHaveLength(1);
       expect(result[0].question).toBe('¿Puedo donar con tatuaje?');
       expect(result[0].category).toBe('TATUAJES');
+    });
+  });
+
+  describe('findDashboardCampaigns (US-20)', () => {
+    it('debe listar campañas para el dashboard con conteo de métricas y porcentaje de avance', async () => {
+      const now = new Date();
+      mockPrisma.campaign.findMany.mockResolvedValue([
+        {
+          id: 'camp-uuid-1',
+          slug: 'donantes-sofia-123',
+          patient_name: 'Sofía Martínez',
+          blood_type: '0+',
+          donation_type: 'Sangre entera',
+          status: 'ACTIVE',
+          created_at: now,
+          deadline: now,
+          target_donors: 10,
+          current_donors: 4,
+          institution: {
+            id: 'inst-1',
+            name: 'Hospital Garrahan',
+            city: 'CABA',
+          },
+          _count: {
+            campaign_metric: 55,
+          },
+        },
+      ]);
+
+      const result = await repository.findDashboardCampaigns({
+        institutionId: 'inst-1',
+        status: 'ACTIVE',
+      });
+
+      expect(mockPrisma.campaign.findMany).toHaveBeenCalledWith({
+        where: {
+          institution_id: 'inst-1',
+          status: 'ACTIVE',
+        },
+        include: {
+          institution: {
+            select: {
+              id: true,
+              name: true,
+              city: true,
+            },
+          },
+          _count: {
+            select: {
+              campaign_metric: true,
+            },
+          },
+        },
+        orderBy: { created_at: 'desc' },
+      });
+
+      expect(result).toHaveLength(1);
+      expect(result[0].patientName).toBe('Sofía Martínez');
+      expect(result[0].progressPercentage).toBe(40);
+      expect(result[0].totalVisits).toBe(55);
+      expect(result[0].institution?.name).toBe('Hospital Garrahan');
     });
   });
 });

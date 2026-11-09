@@ -12,4 +12,3 @@ export class VerifyEditTokenDto {
   @IsString({ message: 'El editToken debe ser una cadena de texto válida.' })
   editToken!: string;
 }
-

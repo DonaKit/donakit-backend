@@ -1,13 +1,12 @@
-import { Test, TestingModule } from '@nestjs/testing';
-import { vi, describe, beforeEach, it, expect } from 'vitest';
+import { describe, beforeEach, it, expect, vi } from 'vitest';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
-import { PrismaService } from './database/prisma.service.js';
+import type { PrismaService } from './database/prisma.service.js';
 
 describe('AppController', () => {
   let appController: AppController;
 
-  beforeEach(async () => {
+  beforeEach(() => {
     const mockPrismaService = {
       $queryRaw: vi
         .fn()
@@ -16,17 +15,10 @@ describe('AppController', () => {
         ]),
       institution: { count: vi.fn().mockResolvedValue(1) },
       campaign: { count: vi.fn().mockResolvedValue(0) },
-    };
+    } as unknown as PrismaService;
 
-    const app: TestingModule = await Test.createTestingModule({
-      controllers: [AppController],
-      providers: [
-        AppService,
-        { provide: PrismaService, useValue: mockPrismaService },
-      ],
-    }).compile();
-
-    appController = app.get<AppController>(AppController);
+    const appService = new AppService(mockPrismaService);
+    appController = new AppController(appService);
   });
 
   describe('root', () => {

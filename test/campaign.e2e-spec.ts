@@ -317,7 +317,9 @@ describe('CampaignController (e2e) - US-01 / ST-03, ST-04, ST-05', () => {
         .expect(201);
 
       expect(response.body.success).toBe(true);
-      expect(response.body.message).toContain('registradas y almacenadas exitosamente');
+      expect(response.body.message).toContain(
+        'registradas y almacenadas exitosamente',
+      );
       expect(response.body.data).toHaveLength(2);
       expect(response.body.data[0].imageUrl).toContain('square_1_1.png');
       expect(response.body.data[1].imageUrl).toContain('story_9_16.png');
@@ -513,7 +515,9 @@ describe('CampaignController (e2e) - US-01 / ST-03, ST-04, ST-05', () => {
 
     it('debe permitir obtener el pedido completo en modo edición con GET /campaigns/:id?editToken=...', async () => {
       const response = await request(app.getHttpServer())
-        .get(`/campaigns/${testCampaign.id}?editToken=${testCampaign.editToken}`)
+        .get(
+          `/campaigns/${testCampaign.id}?editToken=${testCampaign.editToken}`,
+        )
         .expect(200);
 
       expect(response.body.success).toBe(true);
@@ -536,7 +540,8 @@ describe('CampaignController (e2e) - US-01 / ST-03, ST-04, ST-05', () => {
         donationType: 'Plasma',
         targetDonors: 20,
         observations: 'Observaciones corregidas en el formulario.',
-        generatedCopy: 'Texto publicitario actualizado para compartir en WhatsApp.',
+        generatedCopy:
+          'Texto publicitario actualizado para compartir en WhatsApp.',
       };
 
       const response = await request(app.getHttpServer())
@@ -553,10 +558,16 @@ describe('CampaignController (e2e) - US-01 / ST-03, ST-04, ST-05', () => {
       expect(updated.bloodType).toBe('A-');
       expect(updated.donationType).toBe('Plasma');
       expect(updated.targetDonors).toBe(20);
-      expect(updated.observations).toBe('Observaciones corregidas en el formulario.');
-      expect(updated.generatedCopy).toBe('Texto publicitario actualizado para compartir en WhatsApp.');
+      expect(updated.observations).toBe(
+        'Observaciones corregidas en el formulario.',
+      );
+      expect(updated.generatedCopy).toBe(
+        'Texto publicitario actualizado para compartir en WhatsApp.',
+      );
       // Al cambiar el nombre del paciente, el slug debe regenerarse con el nuevo nombre
-      expect(updated.slug).toMatch(/^donantes-mariana-andrea-lopez-[a-f0-9]{6}$/);
+      expect(updated.slug).toMatch(
+        /^donantes-mariana-andrea-lopez-[a-f0-9]{6}$/,
+      );
       expect(updated.slug).not.toBe(testCampaign.slug);
 
       testCampaign = updated;
@@ -628,7 +639,9 @@ describe('CampaignController (e2e) - US-01 / ST-03, ST-04, ST-05', () => {
         .expect(400);
 
       expect(response.body.statusCode).toBe(400);
-      expect(response.body.errors.patientName[0]).toContain('no se permiten números');
+      expect(response.body.errors.patientName[0]).toContain(
+        'no se permiten números',
+      );
     });
 
     it('debe rechazar PATCH /campaigns/:id con 400 Bad Request si el grupo sanguíneo es inválido', async () => {
@@ -775,14 +788,14 @@ describe('CampaignController (e2e) - US-01 / ST-03, ST-04, ST-05', () => {
       expect(Array.isArray(data.requirements)).toBe(true);
       expect(data.requirements.length).toBeGreaterThanOrEqual(5);
 
-      const edadReq = data.requirements.find(
-        (r: any) => r.title.toLowerCase().includes('edad'),
+      const edadReq = data.requirements.find((r: any) =>
+        r.title.toLowerCase().includes('edad'),
       );
       expect(edadReq).toBeDefined();
       expect(edadReq.isImmediateDisqualification).toBe(true);
 
-      const pesoReq = data.requirements.find(
-        (r: any) => r.title.toLowerCase().includes('peso'),
+      const pesoReq = data.requirements.find((r: any) =>
+        r.title.toLowerCase().includes('peso'),
       );
       expect(pesoReq).toBeDefined();
       expect(pesoReq.isImmediateDisqualification).toBe(true);
@@ -808,7 +821,9 @@ describe('CampaignController (e2e) - US-01 / ST-03, ST-04, ST-05', () => {
 
     it('debe responder a GET /campaigns/:slug/requirements permitiendo filtrar por inhabilitaciones inmediatas (US-12)', async () => {
       const response = await request(app.getHttpServer())
-        .get(`/campaigns/${landingCampaign.slug}/requirements?immediateOnly=true`)
+        .get(
+          `/campaigns/${landingCampaign.slug}/requirements?immediateOnly=true`,
+        )
         .expect(200);
 
       expect(response.body.success).toBe(true);
