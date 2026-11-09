@@ -305,8 +305,17 @@ export class CampaignController {
       };
     }
 
-    // US-19: Registrar evento de visita anónima al cargar la página pública
-    if (req) {
+    const isPreview =
+      req?.query?.preview === 'true' ||
+      req?.query?.from === 'admin' ||
+      req?.query?.from === 'dashboard' ||
+      req?.headers?.['x-admin-preview'] === 'true' ||
+      (typeof req?.headers?.['referer'] === 'string' &&
+        (req.headers['referer'].includes('/dashboard') ||
+          req.headers['referer'].includes('/admin')));
+
+    // US-19: Registrar evento de visita anónima al cargar la página pública (ignora visitas de admin/preview)
+    if (req && !isPreview) {
       const clientIp =
         (req.headers?.['x-forwarded-for'] as string)?.split(',')[0].trim() ||
         req.ip ||

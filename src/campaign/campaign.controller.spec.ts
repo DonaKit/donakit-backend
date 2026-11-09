@@ -157,6 +157,25 @@ describe('CampaignController', () => {
       expect((response.data as any).totalVisits).toBeUndefined();
     });
 
+    it('no debe registrar visita si la petición proviene del panel de administración o tiene flag preview (US-19)', async () => {
+      const slug = 'donantes-test-preview';
+      const mockCampaign = new CampaignEntity({
+        id: '63a65bfe-3c92-484e-b658-d3446355e5c2',
+        slug,
+        patientName: 'Test',
+      });
+      mockService.findBySlug.mockResolvedValue(mockCampaign);
+
+      const mockReq = {
+        query: { preview: 'true' },
+        headers: {},
+      } as any;
+
+      await controller.findOne(slug, undefined, mockReq);
+
+      expect(mockService.recordVisit).not.toHaveBeenCalled();
+    });
+
     it('debe devolver la entidad completa con editToken y slug si se provee el editToken correcto vía query param', async () => {
       const uuid = '63a65bfe-3c92-484e-b658-d3446355e5c2';
       const mockCampaign = new CampaignEntity({
