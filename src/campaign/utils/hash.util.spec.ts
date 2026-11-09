@@ -18,4 +18,3 @@ describe('hash.util', () => {
     expect(hashIp('')).toBeNull();
   });
 });
-

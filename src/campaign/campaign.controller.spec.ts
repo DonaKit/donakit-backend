@@ -21,6 +21,10 @@ describe('CampaignController', () => {
     verifyEditToken: vi.fn(),
     getRequirements: vi.fn(),
     getFaqs: vi.fn(),
+    recordVisit: vi.fn(),
+    getVisitCount: vi.fn(),
+    findByIdOrSlug: vi.fn(),
+    findDashboardCampaigns: vi.fn(),
   };
 
   beforeEach(() => {
@@ -63,7 +67,8 @@ describe('CampaignController', () => {
       assets: [
         {
           format: 'SQUARE_1_1',
-          imageBase64: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+          imageBase64:
+            'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
         },
       ],
     };
@@ -83,11 +88,21 @@ describe('CampaignController', () => {
 
       mockService.uploadAssets.mockResolvedValue(mockAssets);
 
-      const response = await controller.uploadAssets(validUuid, uploadDto, mockReq);
+      const response = await controller.uploadAssets(
+        validUuid,
+        uploadDto,
+        mockReq,
+      );
 
-      expect(mockService.uploadAssets).toHaveBeenCalledWith(validUuid, uploadDto, '192.168.1.1');
+      expect(mockService.uploadAssets).toHaveBeenCalledWith(
+        validUuid,
+        uploadDto,
+        '192.168.1.1',
+      );
       expect(response.success).toBe(true);
-      expect(response.message).toBe('Placas del pedido registradas y almacenadas exitosamente.');
+      expect(response.message).toBe(
+        'Placas del pedido registradas y almacenadas exitosamente.',
+      );
       expect(response.data).toEqual(mockAssets);
     });
 
@@ -118,6 +133,7 @@ describe('CampaignController', () => {
       expect(response.data.patientName).toBe('Test');
       expect((response.data as any).editToken).toBeUndefined();
       expect((response.data as any).slug).toBeUndefined();
+      expect((response.data as any).totalVisits).toBeUndefined();
     });
 
     it('debe llamar a service.findBySlug si el parámetro no es un UUID y devolver DTO público sin editToken ni slug', async () => {
@@ -138,6 +154,7 @@ describe('CampaignController', () => {
       expect(response.data.patientName).toBe('Test');
       expect((response.data as any).editToken).toBeUndefined();
       expect((response.data as any).slug).toBeUndefined();
+      expect((response.data as any).totalVisits).toBeUndefined();
     });
 
     it('debe devolver la entidad completa con editToken y slug si se provee el editToken correcto vía query param', async () => {
@@ -153,8 +170,12 @@ describe('CampaignController', () => {
       const response = await controller.findOne(uuid, 'secret-edit-token-123');
 
       expect(response.data.id).toBe(uuid);
-      expect((response.data as CampaignEntity).editToken).toBe('secret-edit-token-123');
-      expect((response.data as CampaignEntity).slug).toBe('donantes-test-123456');
+      expect((response.data as CampaignEntity).editToken).toBe(
+        'secret-edit-token-123',
+      );
+      expect((response.data as CampaignEntity).slug).toBe(
+        'donantes-test-123456',
+      );
     });
 
     it('debe lanzar ForbiddenException si el editToken del query param es incorrecto', async () => {
@@ -167,9 +188,9 @@ describe('CampaignController', () => {
       });
       mockService.findById.mockResolvedValue(mockCampaign);
 
-      await expect(
-        controller.findOne(uuid, 'wrong-token'),
-      ).rejects.toThrow(ForbiddenException);
+      await expect(controller.findOne(uuid, 'wrong-token')).rejects.toThrow(
+        ForbiddenException,
+      );
     });
   });
 
@@ -194,14 +215,16 @@ describe('CampaignController', () => {
 
       expect(mockService.update).toHaveBeenCalledWith(validUuid, updateDto);
       expect(response.success).toBe(true);
-      expect(response.message).toBe('Pedido de donación actualizado exitosamente.');
+      expect(response.message).toBe(
+        'Pedido de donación actualizado exitosamente.',
+      );
       expect(response.data).toBe(mockUpdated);
     });
 
     it('debe lanzar BadRequestException si el ID no es un UUID v4 válido', async () => {
-      await expect(
-        controller.update('invalid-id', updateDto),
-      ).rejects.toThrow(BadRequestException);
+      await expect(controller.update('invalid-id', updateDto)).rejects.toThrow(
+        BadRequestException,
+      );
       expect(mockService.update).not.toHaveBeenCalled();
     });
   });
@@ -277,6 +300,105 @@ describe('CampaignController', () => {
       );
       expect(response.success).toBe(true);
       expect(response.data).toHaveLength(1);
+    });
+  });
+
+  describe('recordVisit y getMetrics (US-19)', () => {
+    it('debe registrar visita a través de POST :idOrSlug/visit', async () => {
+      mockService.findByIdOrSlug.mockResolvedValue(
+        new CampaignEntity({ id: 'campaign-123' }),
+      );
+      mockService.recordVisit.mockResolvedValue(undefined);
+      mockService.getVisitCount.mockResolvedValue(7);
+
+      const mockReq = {
+        headers: { 'user-agent': 'Mozilla/5.0 (iPhone)' },
+        ip: '192.168.1.1',
+      } as any;
+
+      const response = await controller.recordVisit(
+        'campaign-123',
+        mockReq,
+        'QR',
+      );
+
+      expect(mockService.findByIdOrSlug).toHaveBeenCalledWith('campaign-123');
+      expect(mockService.recordVisit).toHaveBeenCalledWith(
+        'campaign-123',
+        '192.168.1.1',
+        'Mozilla/5.0 (iPhone)',
+        'QR',
+      );
+      expect(response.success).toBe(true);
+    });
+
+    it('debe obtener métricas a través de GET :idOrSlug/metrics con editToken válido', async () => {
+      mockService.findByIdOrSlug.mockResolvedValue(
+        new CampaignEntity({
+          id: 'campaign-123',
+          editToken: 'valid-edit-token',
+        }),
+      );
+      mockService.getVisitCount.mockResolvedValue(15);
+
+      const response = await controller.getMetrics(
+        'campaign-123',
+        'valid-edit-token',
+      );
+
+      expect(mockService.findByIdOrSlug).toHaveBeenCalledWith('campaign-123');
+      expect(mockService.getVisitCount).toHaveBeenCalledWith('campaign-123');
+      expect(response.success).toBe(true);
+      expect(response.data.totalVisits).toBe(15);
+    });
+
+    it('debe lanzar ForbiddenException en GET :idOrSlug/metrics si no se provee editToken o es inválido', async () => {
+      mockService.findByIdOrSlug.mockResolvedValue(
+        new CampaignEntity({
+          id: 'campaign-123',
+          editToken: 'valid-edit-token',
+        }),
+      );
+
+      await expect(
+        controller.getMetrics('campaign-123', 'wrong-token'),
+      ).rejects.toThrow(ForbiddenException);
+
+      await expect(
+        controller.getMetrics('campaign-123', undefined),
+      ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  describe('findDashboard (US-20)', () => {
+    it('debe listar campañas abiertas para el panel de reportería con avance y visitas', async () => {
+      const mockCampaigns = [
+        {
+          id: 'camp-1',
+          slug: 'donantes-test',
+          patientName: 'Sofía Martínez',
+          bloodType: 'A+',
+          status: 'ACTIVE',
+          createdAt: new Date(),
+          deadline: new Date(),
+          targetDonors: 10,
+          currentDonors: 3,
+          progressPercentage: 30,
+          totalVisits: 25,
+          institution: { id: 'inst-1', name: 'Garrahan', city: 'CABA' },
+        },
+      ];
+      mockService.findDashboardCampaigns.mockResolvedValue(mockCampaigns);
+
+      const response = await controller.findDashboard('inst-1', 'ACTIVE');
+
+      expect(mockService.findDashboardCampaigns).toHaveBeenCalledWith({
+        institutionId: 'inst-1',
+        status: 'ACTIVE',
+      });
+      expect(response.success).toBe(true);
+      expect(response.data).toEqual(mockCampaigns);
+      expect(response.total).toBe(1);
     });
   });
 });

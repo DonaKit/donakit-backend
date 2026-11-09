@@ -39,6 +39,7 @@ export class CampaignEntity {
   assets?: CampaignAssetEntity[];
   requirements?: RequirementEntity[];
   faqs?: FaqItemEntity[];
+  totalVisits?: number;
 
   constructor(partial: Partial<CampaignEntity>) {
     Object.assign(this, partial);
@@ -66,4 +67,3 @@ export class CampaignEntity {
     };
   }
 }
-

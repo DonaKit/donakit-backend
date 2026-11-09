@@ -13,4 +13,3 @@ export class CampaignAssetEntity {
     Object.assign(this, partial);
   }
 }
-

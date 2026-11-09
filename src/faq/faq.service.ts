@@ -19,7 +19,9 @@ export class FaqService {
             OR: [{ institution_id: null }, { institution_id: institutionId }],
           }
         : { institution_id: null }),
-      ...(category ? { category: { equals: category, mode: 'insensitive' } } : {}),
+      ...(category
+        ? { category: { equals: category, mode: 'insensitive' } }
+        : {}),
     };
 
     const faqs = await this.prisma.faq_item.findMany({
@@ -37,4 +39,3 @@ export class FaqService {
     }));
   }
 }
-

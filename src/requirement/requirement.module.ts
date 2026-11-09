@@ -10,4 +10,3 @@ import { RequirementService } from './requirement.service.js';
   exports: [RequirementService],
 })
 export class RequirementModule {}
-

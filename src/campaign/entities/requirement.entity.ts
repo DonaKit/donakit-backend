@@ -11,4 +11,3 @@ export class RequirementEntity {
     Object.assign(this, partial);
   }
 }
-

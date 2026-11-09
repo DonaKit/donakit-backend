@@ -138,6 +138,134 @@ Devuelve el catálogo de centros de salud e instituciones activas acotado a los 
 
 ---
 
+### 3.2.1. Panel de Campañas Abiertas de la Institución (Dashboard) - US-20
+
+Devuelve el listado de solicitudes y campañas de donación abiertas/activas para el panel de seguimiento de la institución administrativa. Incluye datos clave y el avance de donantes junto con el total acumulado de visitas (`totalVisits`).
+
+Disponible tanto como sub-recurso de la institución como en la colección de campañas:
+* **Rutas:**
+  * `GET /institutions/:id/campaigns` *(recomendada para el panel institucional)*
+  * `GET /campaigns?institutionId=...` *(o `GET /campaigns` para dashboard general)*
+* **Query Params (opcionales):**
+  * `status`: Filtra por estado (`ACTIVE`, `COMPLETED`, `EXPIRED`, `CANCELLED` o `ALL`). Por defecto: `ACTIVE`.
+  * `institutionId`: (cuando se usa `/campaigns`) filtra por centro de salud.
+
+#### Respuesta `200 OK`:
+```json
+{
+  "success": true,
+  "message": "Listado de campañas para panel administrativo obtenido exitosamente.",
+  "total": 1,
+  "data": [
+    {
+      "id": "b73a9e21-4f10-4821-bdfe-7bd73db49b06",
+      "slug": "donantes-sofia-agustina-martinez-fefc4a",
+      "patientName": "Sofía Agustina Martínez",
+      "bloodType": "A+",
+      "donationType": "Sangre entera",
+      "status": "ACTIVE",
+      "createdAt": "2026-10-28T19:40:00.000Z",
+      "deadline": "2026-12-31T00:00:00.000Z",
+      "targetDonors": 10,
+      "currentDonors": 4,
+      "progressPercentage": 40,
+      "totalVisits": 85,
+      "institution": {
+        "id": "63a65bfe-3c92-484e-b658-d3446355e5c2",
+        "name": "Hospital Garrahan - Hemoterapia",
+        "city": "CABA"
+      }
+    }
+  ]
+}
+```
+
+---
+
+### 3.2.2. Gestión Administrativa de Campañas por la Institución (Guardar / Sumar Donantes / Cerrar) - US-16, US-20
+
+Permite al personal administrativo de la institución gestionar directamente las solicitudes de su centro de salud desde su panel: entrar a la campaña, aumentar o fijar la cantidad de donantes alcanzados (`currentDonors`), cambiar el estado para darla por cubierta/cerrada (`status = 'COMPLETED'`) o actualizar fechas y observaciones, y **guardar los cambios** sin necesidad del `editToken` familiar.
+
+#### Reglas de Negocio para Cierre y Avance:
+1. **Sin meta definida (`targetDonors = null` o vacío):** La campaña **nunca se cerrará automáticamente**, sin importar cuántos donantes se registren. Permanecerá abierta (`ACTIVE`) hasta que el administrador o la familia envíen explícitamente `status: "COMPLETED"` (o `"CANCELLED"`).
+2. **Con meta definida (`targetDonors > 0`):** Si el administrador actualiza o incrementa la cantidad de donantes alcanzando o superando la meta requerida (`currentDonors >= targetDonors`) sin especificar un nuevo estado, el sistema **cambia automáticamente el estado a `"COMPLETED"`** y fija el avance en `progressPercentage: 100%`.
+
+#### 1. Modificar y Guardar Cambios de la Campaña (`PATCH /institutions/:institutionId/campaigns/:campaignId`)
+
+* **Método:** `PATCH`
+* **Ruta:** `/institutions/:institutionId/campaigns/:campaignId`
+* **Parámetros URL:**
+  * `:institutionId` (UUID v4 obligatorio del centro de salud).
+  * `:campaignId` (UUID v4 obligatorio de la campaña).
+* **Headers requeridos:** `Content-Type: application/json`
+
+#### Cuerpo de la Petición (`Request Body`):
+```json
+{
+  "currentDonors": 10,
+  "status": "COMPLETED",
+  "observations": "Objetivo cubierto exitosamente."
+}
+```
+
+*Ejemplo de suma incremental (+1 donante) y guardar:*
+```json
+{
+  "incrementDonors": 1
+}
+```
+
+#### Parámetros del Body:
+
+| Campo | Tipo | Obligatorio | Descripción |
+| :--- | :--- | :---: | :--- |
+| `currentDonors` | `integer` | No | Fija el total acumulado de donantes que asistieron (0 a 1000). Recalcula automáticamente el `progressPercentage`. |
+| `incrementDonors` | `integer` | No | Suma directamente la cantidad indicada al total de donantes actual (ej. `1` para registrar un nuevo donante que llegó al hospital). |
+| `status` | `string` | No | Estado de la solicitud (`ACTIVE`, `COMPLETED`, `EXPIRED`, `CANCELLED`). Permite cerrar la campaña marcándola como `COMPLETED`. |
+| `targetDonors` | `integer` / `null` | No | Permite ajustar la meta requerida de donantes si cambia el requerimiento clínico. |
+| `deadline` | `string` / `null` | No | Prorroga o actualiza la fecha límite en formato ISO 8601 o `YYYY-MM-DD`. |
+| `patientName` | `string` | No | Corrige el nombre del paciente (regenera el slug URL-friendly si cambia). |
+| `bloodType` | `string` | No | Modifica o corrige el grupo sanguíneo requerido. |
+| `donationType` | `string` / `null` | No | Modifica el tipo de donación (ej. "Plaquetas", "Sangre entera"). |
+| `observations` | `string` / `null` | No | Instrucciones especiales actualizadas para los donantes. |
+
+#### Respuesta `200 OK`:
+```json
+{
+  "success": true,
+  "message": "Campaña actualizada exitosamente por la institución.",
+  "data": {
+    "id": "b73a9e21-4f10-4821-bdfe-7bd73db49b06",
+    "slug": "donantes-sofia-agustina-martinez-fefc4a",
+    "patientName": "Sofía Agustina Martínez",
+    "bloodType": "A+",
+    "donationType": "Sangre entera",
+    "targetDonors": 10,
+    "currentDonors": 10,
+    "progressPercentage": 100,
+    "status": "COMPLETED",
+    "deadline": "2026-12-31T00:00:00.000Z",
+    "totalVisits": 85,
+    "observations": "Objetivo cubierto exitosamente.",
+    "institution": {
+      "id": "63a65bfe-3c92-484e-b658-d3446355e5c2",
+      "name": "Hospital Garrahan - Hemoterapia",
+      "city": "CABA"
+    }
+  }
+}
+```
+
+#### 2. Consultar Detalle Administrativo de una Campaña (`GET /institutions/:institutionId/campaigns/:campaignId`)
+
+Devuelve el detalle integral de la campaña (incluyendo el contador acumulado de visitas `totalVisits`, requisitos y preguntas frecuentes) para cargar el formulario de edición o la ficha administrativa:
+
+* **Método:** `GET`
+* **Ruta:** `/institutions/:institutionId/campaigns/:campaignId`
+* **Respuesta `200 OK`:** Misma estructura de `data` con la entidad completa de la campaña.
+
+---
+
 ### 3.3. Crear Pedido de Donación (Generación de Kit / Borrador)
 
 Crea el registro del pedido con estado **`DRAFT`**, genera un UUID único, un slug seguro para la URL amigable y un `editToken` para control de cambios posterior.
@@ -420,6 +548,60 @@ Permite consultar las preguntas frecuentes y condiciones médicas asociadas a la
 
 ---
 
+### 3.4.4. Registro y Contador de Visitas a la Landing Page - US-19
+
+Permite registrar y monitorear el alcance de visitas de un pedido de donación tanto por clic directo como por escaneo del código QR.
+
+#### Reglas de Privacidad y Trazabilidad:
+1. **Registro Automático e Invisible:** Al consultar `GET /campaigns/:idOrSlug` sin `editToken`, el backend registra automáticamente la visita en `campaign_metric` (tipo de dispositivo, referrer y hash SHA-256 anónimo de la IP).
+2. **Protección de Datos:** La respuesta pública de `GET /campaigns/:idOrSlug` **no expone** el campo `totalVisits` para proteger la privacidad del paciente y la campaña ante potenciales donantes anónimos.
+3. **Consulta Segura de Métricas:** Solo usuarios autorizados (con `editToken`) o el panel administrativo pueden consultar las métricas acumuladas.
+
+#### Endpoint 1: Consultar Contador de Visitas (`GET /campaigns/:idOrSlug/metrics`)
+* **Método:** `GET`
+* **Ruta:** `/campaigns/:idOrSlug/metrics`
+* **Query Params:**
+  * `editToken` (**obligatorio**): Token secreto de edición asignado a la campaña.
+* **Respuesta `200 OK`:**
+  ```json
+  {
+    "success": true,
+    "message": "Métricas de campaña obtenidas exitosamente.",
+    "data": {
+      "campaignId": "b73a9e21-4f10-4821-bdfe-7bd73db49b06",
+      "totalVisits": 142
+    }
+  }
+  ```
+* **Respuesta `403 Forbidden` (Token ausente o inválido):**
+  ```json
+  {
+    "statusCode": 403,
+    "error": "Forbidden",
+    "message": "El editToken es requerido y debe ser válido para consultar las métricas de la campaña."
+  }
+  ```
+
+#### Endpoint 2: Registro Explícito de Visita (`POST /campaigns/:idOrSlug/visit`)
+Permite al frontend reportar explícitamente el evento de visita al montar la vista de la landing si así lo prefiere.
+* **Método:** `POST`
+* **Ruta:** `/campaigns/:idOrSlug/visit`
+* **Body (opcional):**
+  ```json
+  {
+    "referrer": "QR"
+  }
+  ```
+* **Respuesta `200 OK`:**
+  ```json
+  {
+    "success": true,
+    "message": "Visita registrada exitosamente."
+  }
+  ```
+
+---
+
 ### 3.5. Registrar, Confirmar y Descargar Placas Gráficas Generadas (`POST /campaigns/:id/assets`) - US-07
 
 Permite al frontend (que genera las placas en canvas de alta fidelidad) registrar y almacenar las imágenes en el bucket de **Supabase Storage** (`campaign-assets`) y registrar los metadatos correspondientes en la tabla **`campaign_asset`**.
@@ -559,6 +741,8 @@ Permite al difusor corregir o modificar los datos del formulario antes de genera
 | `deadline` | `string` / `null` | No | Fecha límite en formato ISO 8601 o `YYYY-MM-DD`. Enviar `null` o `""` borra el valor en BD. |
 | `observations` | `string` / `null` | No | Indicaciones adicionales para donantes (máx. 1000 caracteres). Enviar `null` o `""` borra el valor en BD. |
 | `generatedCopy` | `string` / `null` | No | Texto publicitario (copy) actualizado para compartir en redes. Acepta `generated_copy`. Enviar `null` o `""` borra el valor en BD. |
+| `status` | `string` | No | Estado de la campaña (`ACTIVE`, `COMPLETED`, `EXPIRED`, `CANCELLED`). Permite marcar como cubierto (`COMPLETED`) (US-16). |
+| `currentDonors` | `integer` | No | Donantes conseguidos hasta la fecha (0 a 1000). Acepta `current_donors` (US-16, US-20). |
 
 #### Respuesta `200 OK`:
 ```json

@@ -145,7 +145,9 @@ export class CreateCampaignDto {
     return typeof val === 'string' ? val.trim() : val;
   })
   @IsOptional()
-  @IsString({ message: 'El texto generado (copy) debe ser una cadena de texto.' })
+  @IsString({
+    message: 'El texto generado (copy) debe ser una cadena de texto.',
+  })
   @MaxLength(2000, {
     message: 'El texto generado (copy) no puede exceder los 2000 caracteres.',
   })
