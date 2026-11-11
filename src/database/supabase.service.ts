@@ -57,7 +57,7 @@ export class SupabaseService implements OnModuleInit {
     fileBuffer: Buffer | Uint8Array,
     contentType: string = 'image/png',
   ) {
-    const bucket = 'campaign-assets';
+    const bucket = process.env.SUPABASE_STORAGE_BUCKET || 'campaign-assets';
     const { data, error } = await this.storage
       .from(bucket)
       .upload(filePath, fileBuffer, {

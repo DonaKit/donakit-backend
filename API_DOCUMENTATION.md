@@ -16,9 +16,8 @@ Servidor backend desarrollado con **NestJS**, **TypeScript**, **Prisma ORM** y *
 * **Formato de intercambio:** `application/json; charset=utf-8`.
 * **Compatibilidad de Nombres de Campo (Input):** El backend cuenta con un middleware automático que acepta tanto `camelCase` como `snake_case` en los cuerpos de las peticiones (ej. `patientName` o `patient_name`).
 * **CORS:**
-  * Permite automáticamente cualquier puerto en `localhost` y `127.0.0.1`.
-  * Permite el frontend en Vercel (`https://donakit-frontend.vercel.app`) y sus subdominios de preview oficiales (`git-*` y hashes de commit).
-  * Admite orígenes adicionales configurados en la variable de entorno `FRONTEND_URL`.
+  * Los orígenes permitidos se configuran exclusivamente mediante la variable de entorno `FRONTEND_URL` (lista separada por comas, ej. `https://donakit-frontend.vercel.app,http://localhost:3000,http://localhost:3001`), sin URLs hardcodeadas en el código fuente.
+  * Si `FRONTEND_URL` incluye un dominio `https://<proyecto>.vercel.app`, el backend habilita automáticamente sus subdominios oficiales de preview en Vercel (`git-*` y hashes de despliegue).
 
 ---
 
