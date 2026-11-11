@@ -11,8 +11,10 @@ import {
   Post,
   Query,
   Req,
+  UseGuards,
 } from '@nestjs/common';
 import type { Request } from 'express';
+import { AdminAuthGuard } from '../auth/guards/admin-auth.guard.js';
 import { CampaignService } from './campaign.service.js';
 import { CampaignAssetsResponseDto } from './dto/campaign-assets-response.dto.js';
 import { CampaignDashboardResponseDto } from './dto/campaign-dashboard-item.dto.js';
@@ -257,6 +259,7 @@ export class CampaignController {
    * nombre del paciente, fechas, estado, avance de donantes y total de visitas.
    */
   @Get()
+  @UseGuards(AdminAuthGuard)
   async findDashboard(
     @Query('institutionId') institutionId?: string,
     @Query('status') status?: string,

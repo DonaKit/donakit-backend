@@ -8,7 +8,9 @@ import {
   Param,
   Patch,
   Query,
+  UseGuards,
 } from '@nestjs/common';
+import { AdminAuthGuard } from '../auth/guards/admin-auth.guard.js';
 import { CampaignService } from '../campaign/campaign.service.js';
 import { AdminUpdateCampaignDto } from '../campaign/dto/admin-update-campaign.dto.js';
 import type { CampaignDashboardResponseDto } from '../campaign/dto/campaign-dashboard-item.dto.js';
@@ -41,6 +43,7 @@ export class InstitutionController {
    * Por defecto filtra las campañas abiertas/activas (o según query param ?status=...).
    */
   @Get(':id/campaigns')
+  @UseGuards(AdminAuthGuard)
   async findCampaigns(
     @Param('id') id: string,
     @Query('status') status?: string,
@@ -63,6 +66,7 @@ export class InstitutionController {
    * Devuelve la entidad completa con total de visitas, requisitos y avance sin exigir el editToken familiar.
    */
   @Get(':institutionId/campaigns/:campaignId')
+  @UseGuards(AdminAuthGuard)
   async findOneCampaign(
     @Param('institutionId') institutionId: string,
     @Param('campaignId') campaignId: string,
@@ -96,6 +100,7 @@ export class InstitutionController {
    * o ajustar plazos y observaciones, y pulsar "Guardar".
    */
   @Patch(':institutionId/campaigns/:campaignId')
+  @UseGuards(AdminAuthGuard)
   async updateCampaign(
     @Param('institutionId') institutionId: string,
     @Param('campaignId') campaignId: string,

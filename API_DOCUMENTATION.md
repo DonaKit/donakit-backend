@@ -18,6 +18,10 @@ Servidor backend desarrollado con **NestJS**, **TypeScript**, **Prisma ORM** y *
 * **CORS:**
   * Los orígenes permitidos se configuran exclusivamente mediante la variable de entorno `FRONTEND_URL` (lista separada por comas, ej. `https://donakit-frontend.vercel.app,http://localhost:3000,http://localhost:3001`), sin URLs hardcodeadas en el código fuente.
   * Si `FRONTEND_URL` incluye un dominio `https://<proyecto>.vercel.app`, el backend habilita automáticamente sus subdominios oficiales de preview en Vercel (`git-*` y hashes de despliegue).
+* **Autenticación Administrativa (`AdminAuthGuard`):**
+  * Los endpoints exclusivos del panel administrativo (`GET /campaigns`, `GET /institutions/:id/campaigns`, `GET /institutions/:institutionId/campaigns/:campaignId` y `PATCH /institutions/:institutionId/campaigns/:campaignId`) exigen cabecera `Authorization: Bearer <jwt>`.
+  * El JWT se firma con algoritmo `HS256` desde el servidor de Next.js (`/api/admin/token` tras validar sesión Auth.js Google + `ADMIN_EMAILS`) usando el secreto compartido `JWT_SECRET` (o `AUTH_SECRET` como respaldo).
+  * Si `ADMIN_EMAILS` también está definida en el backend, `AdminAuthGuard` revalida que el email del token pertenezca a la whitelist (`403 Forbidden` en caso contrario).
 
 ---
 
@@ -145,6 +149,7 @@ Disponible tanto como sub-recurso de la institución como en la colección de ca
 * **Rutas:**
   * `GET /institutions/:id/campaigns` *(recomendada para el panel institucional)*
   * `GET /campaigns?institutionId=...` *(o `GET /campaigns` para dashboard general)*
+* **Autenticación:** Requiere cabecera `Authorization: Bearer <jwt>` de administrador (`401` si falta o expiró, `403` si no tiene rol/email autorizado).
 * **Query Params (opcionales):**
   * `status`: Filtra por estado (`ACTIVE`, `COMPLETED`, `EXPIRED`, `CANCELLED` o `ALL`). Por defecto: `ACTIVE`.
   * `institutionId`: (cuando se usa `/campaigns`) filtra por centro de salud.
@@ -196,7 +201,7 @@ Permite al personal administrativo de la institución gestionar directamente las
 * **Parámetros URL:**
   * `:institutionId` (UUID v4 obligatorio del centro de salud).
   * `:campaignId` (UUID v4 obligatorio de la campaña).
-* **Headers requeridos:** `Content-Type: application/json`
+* **Headers requeridos:** `Content-Type: application/json`, `Authorization: Bearer <jwt>` (token admin emitido por `/api/admin/token`).
 
 #### Cuerpo de la Petición (`Request Body`):
 ```json
@@ -261,6 +266,7 @@ Devuelve el detalle integral de la campaña (incluyendo el contador acumulado de
 
 * **Método:** `GET`
 * **Ruta:** `/institutions/:institutionId/campaigns/:campaignId`
+* **Headers requeridos:** `Authorization: Bearer <jwt>` (token admin emitido por `/api/admin/token`).
 * **Respuesta `200 OK`:** Misma estructura de `data` con la entidad completa de la campaña.
 
 ---
