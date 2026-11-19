@@ -1,4 +1,5 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
+import { ScheduleModule } from '@nestjs/schedule';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { CampaignModule } from './campaign/campaign.module.js';
@@ -10,6 +11,7 @@ import { RequirementModule } from './requirement/requirement.module.js';
 
 @Module({
   imports: [
+    ScheduleModule.forRoot(),
     DatabaseModule,
     CampaignModule,
     InstitutionModule,

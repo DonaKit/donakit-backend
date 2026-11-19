@@ -156,7 +156,7 @@ describe('CampaignController (e2e) - US-01 / ST-03, ST-04, ST-05', () => {
         .expect(400);
 
       expect(response.body.errors.patientName[0]).toContain(
-        'no se permiten números',
+        'solo debe contener letras',
       );
     });
 
@@ -214,7 +214,7 @@ describe('CampaignController (e2e) - US-01 / ST-03, ST-04, ST-05', () => {
       expect(data.targetDonors).toBe(15);
       expect(data.institution).toBeDefined();
       expect(data.institution.id).toBe(testInstitutionId);
-      expect(data.status).toBe('DRAFT');
+      expect(data.status).toBe('ACTIVE');
 
       createdCampaign = data;
       createdCampaignIds.push(data.id);
@@ -640,7 +640,7 @@ describe('CampaignController (e2e) - US-01 / ST-03, ST-04, ST-05', () => {
 
       expect(response.body.statusCode).toBe(400);
       expect(response.body.errors.patientName[0]).toContain(
-        'no se permiten números',
+        'solo debe contener letras',
       );
     });
 

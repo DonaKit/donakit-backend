@@ -2,7 +2,10 @@ import type {
   campaign_status,
   institution as InstitutionRecord,
 } from '@prisma/client';
-import type { CampaignDashboardItemDto } from '../dto/campaign-dashboard-item.dto.js';
+import type {
+  CampaignDashboardItemDto,
+  CampaignDashboardSummaryDto,
+} from '../dto/campaign-dashboard-item.dto.js';
 import type { CampaignEntity } from '../entities/campaign.entity.js';
 import type { FaqItemEntity } from '../entities/faq-item.entity.js';
 import type { RequirementEntity } from '../entities/requirement.entity.js';
@@ -73,4 +76,13 @@ export interface ICampaignRepository {
     page?: number;
     limit?: number;
   }): Promise<DashboardCampaignsRepositoryResult>;
+  expireOverdueCampaigns(): Promise<number>;
+  getDashboardSummary(
+    institutionId?: string,
+  ): Promise<CampaignDashboardSummaryDto>;
+  atomicUpdateDonors(
+    campaignId: string,
+    institutionId: string,
+    delta: number,
+  ): Promise<number>;
 }

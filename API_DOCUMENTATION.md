@@ -16,9 +16,12 @@ Servidor backend desarrollado con **NestJS**, **TypeScript**, **Prisma ORM** y *
 * **Formato de intercambio:** `application/json; charset=utf-8`.
 * **Compatibilidad de Nombres de Campo (Input):** El backend cuenta con un middleware automático que acepta tanto `camelCase` como `snake_case` en los cuerpos de las peticiones (ej. `patientName` o `patient_name`).
 * **CORS:**
-  * Permite automáticamente cualquier puerto en `localhost` y `127.0.0.1`.
-  * Permite el frontend en Vercel (`https://donakit-frontend.vercel.app`) y sus subdominios de preview oficiales (`git-*` y hashes de commit).
-  * Admite orígenes adicionales configurados en la variable de entorno `FRONTEND_URL`.
+  * Los orígenes permitidos se configuran exclusivamente mediante la variable de entorno `FRONTEND_URL` (lista separada por comas, ej. `https://donakit-frontend.vercel.app,http://localhost:3000,http://localhost:3001`), sin URLs hardcodeadas en el código fuente.
+  * Si `FRONTEND_URL` incluye un dominio `https://<proyecto>.vercel.app`, el backend habilita automáticamente sus subdominios oficiales de preview en Vercel (`git-*` y hashes de despliegue).
+* **Autenticación Administrativa (`AdminAuthGuard`):**
+  * Los endpoints exclusivos del panel administrativo (`GET /campaigns`, `GET /institutions/:id/campaigns`, `GET /institutions/:institutionId/campaigns/:campaignId` y `PATCH /institutions/:institutionId/campaigns/:campaignId`) exigen cabecera `Authorization: Bearer <jwt>`.
+  * El JWT se firma con algoritmo `HS256` desde el servidor de Next.js (`/api/admin/token` tras validar sesión Auth.js Google + `ADMIN_EMAILS`) usando el secreto compartido `JWT_SECRET` (o `AUTH_SECRET` como respaldo).
+  * Si `ADMIN_EMAILS` también está definida en el backend, `AdminAuthGuard` revalida que el email del token pertenezca a la whitelist (`403 Forbidden` en caso contrario).
 
 ---
 
@@ -147,8 +150,9 @@ Disponible tanto como sub-recurso de la institución como en la colección globa
   * `GET /institutions/:id/campaigns/dashboard` *(ruta formal del panel institucional)*
   * `GET /institutions/:id/campaigns` *(alias del panel institucional)*
   * `GET /campaigns?institutionId=...` *(o `GET /campaigns` para dashboard general)*
+* **Autenticación:** Requiere cabecera `Authorization: Bearer <jwt>` de administrador (`401` si falta o expiró, `403` si no tiene rol/email autorizado).
 * **Query Params (opcionales):**
-  * `status`: Filtra por estado (`ACTIVE`, `COMPLETED`, `EXPIRED`, `CANCELLED`, `DRAFT` o `ALL`). Por defecto: `ACTIVE`.
+  * `status`: Filtra por estado (`ACTIVE`, `COMPLETED`, `EXPIRED`, `CANCELLED`, `DRAFT` o `ALL`). Por defecto: `ACTIVE`. Si se indica `ALL`, devuelve todas las campañas sin filtrar por estado.
   * `page`: Número de página solicitado (entero >= 1). Por defecto: `1`.
   * `limit`: Cantidad máxima de campañas devueltas por página (entero entre 1 y 100). Por defecto: `30`.
   * `institutionId`: (cuando se usa `/campaigns`) filtra por centro de salud.
@@ -207,6 +211,7 @@ Permite al personal administrativo de la institución gestionar directamente las
 3. **Restricción de decremento en completadas con meta alcanzada:** Si una campaña se encuentra en `COMPLETED` habiendo alcanzado o superado su meta (`currentDonors >= targetDonors`), se **bloquea cualquier decremento** (`incrementDonors < 0` o `currentDonors < anteriores`), respondiendo `400 Bad Request`: *"No está permitido restar donantes a una campaña completada que alcanzó su meta. Debe reabrir la campaña primero."*
 4. **Reapertura controlada con ampliación de meta:** Si una campaña `COMPLETED` cuya meta fue alcanzada se reactiva enviando `status: "ACTIVE"`, el administrador **debe ingresar una nueva meta (`targetDonors`) estrictamente superior a los donantes ya conseguidos**, o bien dejarla sin tope enviando `targetDonors: null`. De lo contrario, el sistema responde `400 Bad Request`: *"Para reabrir una campaña cuya meta fue alcanzada, debe ingresar una nueva meta de donantes mayor a los donantes ya conseguidos (X) o dejarla sin límite fijado (null)."*
 5. **Edición directa de donantes solo en campañas activas:** La asignación directa del contador (`currentDonors`) solo está permitida si la campaña se encuentra actualmente en estado `ACTIVE` o si en la misma petición se reactiva con `status: "ACTIVE"`. De lo contrario, responde `400 Bad Request`: *"Solo se puede modificar la cantidad de donantes en campañas que se encuentren activas."*
+6. **Reapertura de campañas vencidas:** Permite reanudar una campaña en estado `EXPIRED` enviando una fecha futura en `deadline` junto con `status: "ACTIVE"`.
 
 #### 1. Modificar y Guardar Cambios de la Campaña (`PATCH /institutions/:institutionId/campaigns/:campaignId`)
 
@@ -215,7 +220,7 @@ Permite al personal administrativo de la institución gestionar directamente las
 * **Parámetros URL:**
   * `:institutionId` (UUID v4 obligatorio del centro de salud).
   * `:campaignId` (UUID v4 obligatorio de la campaña).
-* **Headers requeridos:** `Content-Type: application/json`
+* **Headers requeridos:** `Content-Type: application/json`, `Authorization: Bearer <jwt>` (token admin emitido por `/api/admin/token`).
 
 #### Cuerpo de la Petición (`Request Body`):
 ```json
@@ -255,9 +260,10 @@ Permite al personal administrativo de la institución gestionar directamente las
 | :--- | :--- | :---: | :--- |
 | `currentDonors` | `integer` | No | Fija el total acumulado de donantes que asistieron (0 a 1000). Solo permitido en campañas `ACTIVE` o en reapertura. |
 | `incrementDonors` | `integer` | No | Ajuste relativo de donantes (-100 a +100). Permite sumar (+1) o restar (-1 para correcciones en campañas activas). |
+| `decrementDonors` | `integer` | No | Descuenta atómicamente la cantidad indicada (1 a 100) en campañas activas garantizando no descender de 0. |
 | `status` | `string` | No | Estado de la solicitud (`ACTIVE`, `COMPLETED`, `EXPIRED`, `CANCELLED`). Permite cerrar o reabrir la campaña. |
 | `targetDonors` | `integer` / `null` | No | Permite ajustar la meta requerida de donantes (1 a 1000) o remover el límite (`null`). |
-| `deadline` | `string` / `null` | No | Prorroga o actualiza la fecha límite en formato ISO 8601 o `YYYY-MM-DD`. |
+| `deadline` | `string` / `null` | No | Prorroga o actualiza la fecha límite en formato ISO 8601 o `YYYY-MM-DD`. Permite enviar `null` para eliminar la fecha límite. |
 | `patientName` | `string` | No | Corrige el nombre del paciente (regenera el slug URL-friendly si cambia). |
 | `bloodType` | `string` | No | Modifica o corrige el grupo sanguíneo requerido. |
 | `donationType` | `string` / `null` | No | Modifica el tipo de donación (ej. "Plaquetas", "Sangre entera"). |
@@ -296,13 +302,14 @@ Devuelve el detalle integral de la campaña (incluyendo el contador acumulado de
 
 * **Método:** `GET`
 * **Ruta:** `/institutions/:institutionId/campaigns/:campaignId`
+* **Headers requeridos:** `Authorization: Bearer <jwt>` (token admin emitido por `/api/admin/token`).
 * **Respuesta `200 OK`:** Misma estructura de `data` con la entidad completa de la campaña.
 
 ---
 
-### 3.3. Crear Pedido de Donación (Generación de Kit / Borrador)
+### 3.3. Crear Pedido de Donación (Generación de Kit)
 
-Crea el registro del pedido con estado **`DRAFT`**, genera un UUID único, un slug seguro para la URL amigable y un `editToken` para control de cambios posterior.
+Crea el registro del pedido directamente en estado **`ACTIVE`** (BUG-07), genera un UUID único, un slug seguro para la URL amigable y un `editToken` para control de cambios posterior.
 
 * **Método:** `POST`
 * **Ruta:** `/campaigns`
@@ -326,7 +333,7 @@ Crea el registro del pedido con estado **`DRAFT`**, genera un UUID único, un sl
 
 | Campo | Tipo | Obligatorio | Restricciones / Reglas |
 | :--- | :--- | :---: | :--- |
-| `patientName` | `string` | **Sí** | 2 a 255 caracteres. Solo letras, espacios, guiones o apóstrofes. No permite números. |
+| `patientName` | `string` | **Sí** | 2 a 255 caracteres. Acepta letras, tildes/marcas diacríticas (`\p{M}`), puntos e iniciales (ej. "Juan C. Pérez"), guiones y apóstrofos tipográficos ("D’Angelo"). No permite números. |
 | `institutionId` | `string` (UUID v4) | **Sí** | Debe existir en la base de datos y tener `is_active: true`. |
 | `bloodType` | `string` | **Sí** | Valores permitidos: `A+`, `A-`, `B+`, `B-`, `AB+`, `AB-`, `0+`, `0-`, `O+`, `O-`, `TODOS`. |
 | `donationType` | `string` | No | Máx. 50 caracteres. Por defecto: `"Sangre entera"`. |
@@ -352,7 +359,7 @@ Crea el registro del pedido con estado **`DRAFT`**, genera un UUID único, un sl
     "deadline": "2026-12-31T00:00:00.000Z",
     "observations": "Presentarse con DNI en ayuno de grasas.",
     "generatedCopy": null,
-    "status": "DRAFT",
+    "status": "ACTIVE",
     "createdAt": "2026-10-28T19:40:00.000Z",
     "updatedAt": "2026-10-28T19:40:00.000Z",
     "institution": {

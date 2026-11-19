@@ -53,6 +53,7 @@ export class AdminUpdateCampaignDto {
   currentDonors?: number;
 
   /**
+  /**
    * Ajuste incremental o decremental de donantes (ej. 1 para "+1 Donante", -1 para corrección).
    * Opcional. Si se provee, se suma algebraicamente al valor actual de currentDonors.
    */
@@ -76,6 +77,28 @@ export class AdminUpdateCampaignDto {
       'El incremento de donantes no puede exceder 100 en una sola operación.',
   })
   incrementDonors?: number;
+
+  /**
+   * Cantidad decremental de donantes a restar al total actual (ej. 1 para botón "-1 Donante").
+   * Opcional. Si se provee, se descuenta de currentDonors asegurando no bajar de 0.
+   */
+  @Transform(({ obj, value }) => {
+    const val = value !== undefined ? value : obj?.decrement_donors;
+    if (val === undefined) return undefined;
+    const num = Number(val);
+    return Number.isNaN(num) ? val : num;
+  })
+  @IsOptional()
+  @IsInt({
+    message: 'El decremento de donantes debe ser un número entero.',
+  })
+  @Min(1, {
+    message: 'El decremento de donantes debe ser al menos 1.',
+  })
+  @Max(100, {
+    message: 'El decremento de donantes no puede exceder 100 en una sola operación.',
+  })
+  decrementDonors?: number;
 
   /**
    * Cantidad objetivo de donantes requeridos.
@@ -134,9 +157,9 @@ export class AdminUpdateCampaignDto {
   @MaxLength(255, {
     message: 'El nombre del paciente no puede superar los 255 caracteres.',
   })
-  @Matches(/^(?=.*[\p{L}])[\p{L}\s'-]+$/u, {
+  @Matches(/^(?=.*[\p{L}])[\p{L}\p{M}\s.'’-]+$/u, {
     message:
-      'El nombre del paciente solo debe contener letras, espacios o guiones (no se permiten números ni caracteres especiales).',
+      'El nombre del paciente solo debe contener letras, espacios, puntos, guiones o apóstrofos.',
   })
   patientName?: string;
 

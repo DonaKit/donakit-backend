@@ -407,7 +407,16 @@ describe('CampaignController', () => {
           institution: { id: 'inst-1', name: 'Garrahan', city: 'CABA' },
         },
       ];
-      mockService.findDashboardCampaigns.mockResolvedValue(mockCampaigns);
+      const mockSummary = {
+        totalCampanias: 1,
+        activas: 1,
+        totalVisitas: 25,
+        donantesConseguidos: 3,
+      };
+      mockService.findDashboardCampaigns.mockResolvedValue({
+        campaigns: mockCampaigns,
+        summary: mockSummary,
+      });
 
       const response = await controller.findDashboard('inst-1', 'ACTIVE');
 
@@ -427,6 +436,7 @@ describe('CampaignController', () => {
         totalPages: 1,
       });
       expect(response.total).toBe(1);
+      expect(response.summary).toEqual(mockSummary);
     });
   });
 });

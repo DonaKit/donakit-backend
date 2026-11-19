@@ -55,9 +55,16 @@ describe('InstitutionController', () => {
           totalVisits: 10,
         },
       ];
-      mockCampaignService.findDashboardCampaigns.mockResolvedValue(
-        mockCampaigns,
-      );
+      const mockSummary = {
+        totalCampanias: 1,
+        activas: 1,
+        totalVisitas: 10,
+        donantesConseguidos: 2,
+      };
+      mockCampaignService.findDashboardCampaigns.mockResolvedValue({
+        campaigns: mockCampaigns,
+        summary: mockSummary,
+      });
 
       const response = await controller.findCampaigns('inst-1', 'ACTIVE');
 
@@ -77,6 +84,7 @@ describe('InstitutionController', () => {
         totalPages: 1,
       });
       expect(response.total).toBe(1);
+      expect(response.summary).toEqual(mockSummary);
     });
 
     it('findCampaignsDashboard debe actuar como alias de findCampaigns y respetar paginación personalizada', async () => {

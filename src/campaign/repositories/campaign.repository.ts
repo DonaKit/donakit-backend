@@ -1,7 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { Prisma, campaign_status } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service.js';
-import type { CampaignDashboardItemDto } from '../dto/campaign-dashboard-item.dto.js';
+import type {
+  CampaignDashboardItemDto,
+  CampaignDashboardSummaryDto,
+} from '../dto/campaign-dashboard-item.dto.js';
 import { CampaignAssetEntity } from '../entities/campaign-asset.entity.js';
 import { CampaignEntity } from '../entities/campaign.entity.js';
 import { FaqItemEntity } from '../entities/faq-item.entity.js';
@@ -50,7 +53,7 @@ export class CampaignRepository implements ICampaignRepository {
       deadline: data.deadline ?? null,
       observations: data.observations ?? null,
       generated_copy: data.generatedCopy ?? null,
-      status: data.status ?? 'DRAFT',
+      status: data.status ?? 'ACTIVE',
       institution: {
         connect: { id: data.institutionId },
       },
@@ -149,9 +152,7 @@ export class CampaignRepository implements ICampaignRepository {
         : {}),
       ...(options.status && options.status !== 'ALL'
         ? { status: options.status as campaign_status }
-        : options.status === 'ALL'
-          ? {}
-          : { status: 'ACTIVE' }),
+        : {}),
     };
 
     const page = options.page && options.page > 0 ? options.page : 1;
@@ -267,11 +268,96 @@ export class CampaignRepository implements ICampaignRepository {
         totalCampanias,
         activas,
         totalVisitas,
-        donantesConseguidos: aggregateDonors._sum?.current_donors ?? 0,
+        donantesConseguidos: aggregateDonors?._sum?.current_donors ?? 0,
       };
     }
 
     return result;
+  }
+
+  /**
+   * Actualiza atómicamente a EXPIRED todas las campañas con fecha límite vencida que sigan en estado ACTIVE (BUG-04).
+   */
+  async expireOverdueCampaigns(): Promise<number> {
+    const result = await this.prisma.$executeRaw`
+      UPDATE campaign
+      SET status = 'EXPIRED'::campaign_status,
+          updated_at = timezone('utc'::text, now())
+      WHERE status = 'ACTIVE'::campaign_status
+        AND deadline IS NOT NULL
+        AND deadline < CURRENT_DATE;
+    `;
+    if (result > 0) {
+      this.logger.log(
+        `Expiración automática: ${result} campaña(s) vencida(s) pasaron a estado 'EXPIRED'.`,
+      );
+    }
+    return result;
+  }
+
+  /**
+   * Calcula las métricas globales acumuladas para la institución o plataforma (BUG-01).
+   */
+  async getDashboardSummary(
+    institutionId?: string,
+  ): Promise<CampaignDashboardSummaryDto> {
+    const institutionWhere: Prisma.campaignWhereInput = institutionId
+      ? { institution_id: institutionId }
+      : {};
+
+    const [totalCampanias, activas, donorsAgg, visitsCount] =
+      await Promise.all([
+        this.prisma.campaign.count({
+          where: institutionWhere,
+        }),
+        this.prisma.campaign.count({
+          where: {
+            ...institutionWhere,
+            status: 'ACTIVE',
+          },
+        }),
+        this.prisma.campaign.aggregate({
+          where: institutionWhere,
+          _sum: {
+            current_donors: true,
+          },
+        }),
+        this.prisma.campaign_metric.count({
+          where: institutionId
+            ? {
+                campaign: {
+                  institution_id: institutionId,
+                },
+              }
+            : {},
+        }),
+      ]);
+
+    return {
+      totalCampanias,
+      activas,
+      totalVisitas: visitsCount,
+      donantesConseguidos: donorsAgg._sum.current_donors ?? 0,
+    };
+  }
+
+  /**
+   * Aplica un incremento o decremento atómico seguro sobre current_donors en PostgreSQL
+   * asegurando no descender por debajo de 0 mediante GREATEST(0, current_donors + delta) (BUG-02, BUG-03).
+   */
+  async atomicUpdateDonors(
+    campaignId: string,
+    institutionId: string,
+    delta: number,
+  ): Promise<number> {
+    const result = await this.prisma.$queryRaw<{ current_donors: number }[]>`
+      UPDATE campaign
+      SET current_donors = GREATEST(0, COALESCE(current_donors, 0) + ${delta}),
+          updated_at = timezone('utc'::text, now())
+      WHERE id = ${campaignId}::uuid AND institution_id = ${institutionId}::uuid
+      RETURNING current_donors;
+    `;
+    return result[0]?.current_donors ?? 0;
   }
 
   /**

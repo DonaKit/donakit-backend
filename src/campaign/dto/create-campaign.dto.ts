@@ -43,9 +43,9 @@ export class CreateCampaignDto {
   @MaxLength(255, {
     message: 'El nombre del paciente no puede superar los 255 caracteres.',
   })
-  @Matches(/^(?=.*[\p{L}])[\p{L}\s'-]+$/u, {
+  @Matches(/^(?=.*[\p{L}])[\p{L}\p{M}\s.'’-]+$/u, {
     message:
-      'El nombre del paciente solo debe contener letras, espacios o guiones (no se permiten números ni caracteres especiales).',
+      'El nombre del paciente solo debe contener letras, espacios, puntos, guiones o apóstrofos.',
   })
   patientName!: string;
 

@@ -18,6 +18,8 @@ export class SnakeToCamelMiddleware implements NestMiddleware {
         edit_token: 'editToken',
         image_base64: 'imageBase64',
         generated_copy: 'generatedCopy',
+        increment_donors: 'incrementDonors',
+        decrement_donors: 'decrementDonors',
       };
 
       for (const [snakeKey, camelKey] of Object.entries(fieldMappings)) {

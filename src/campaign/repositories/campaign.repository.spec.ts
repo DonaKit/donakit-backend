@@ -14,6 +14,8 @@ describe('CampaignRepository', () => {
         findUnique: vi.fn(),
         findMany: vi.fn(),
         update: vi.fn(),
+        count: vi.fn(),
+        aggregate: vi.fn(),
       },
       institution: {
         count: vi.fn(),
@@ -28,6 +30,8 @@ describe('CampaignRepository', () => {
       campaign_metric: {
         count: vi.fn().mockResolvedValue(0),
       },
+      $executeRaw: vi.fn(),
+      $queryRaw: vi.fn(),
     };
 
     repository = new CampaignRepository(mockPrisma as unknown as PrismaService);
@@ -334,6 +338,70 @@ describe('CampaignRepository', () => {
       expect(result[0].progressPercentage).toBe(40);
       expect(result[0].totalVisits).toBe(55);
       expect(result[0].institution?.name).toBe('Hospital Garrahan');
+    });
+
+    it('debe omitir el filtro de estado si status es ALL o no se especifica', async () => {
+      mockPrisma.campaign.findMany.mockResolvedValue([]);
+
+      await repository.findDashboardCampaigns({
+        institutionId: 'inst-1',
+        status: 'ALL',
+      });
+
+      expect(mockPrisma.campaign.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            institution_id: 'inst-1',
+          },
+        }),
+      );
+    });
+  });
+
+  describe('expireOverdueCampaigns (BUG-04)', () => {
+    it('debe ejecutar $executeRaw para marcar EXPIRED las campañas vencidas', async () => {
+      mockPrisma.$executeRaw.mockResolvedValue(3);
+
+      const count = await repository.expireOverdueCampaigns();
+
+      expect(mockPrisma.$executeRaw).toHaveBeenCalledOnce();
+      expect(count).toBe(3);
+    });
+  });
+
+  describe('getDashboardSummary (BUG-01)', () => {
+    it('debe consultar métricas acumuladas globales de la institución', async () => {
+      mockPrisma.campaign.count
+        .mockResolvedValueOnce(10) // total
+        .mockResolvedValueOnce(4); // activas
+      mockPrisma.campaign.aggregate.mockResolvedValue({
+        _sum: { current_donors: 18 },
+      });
+      mockPrisma.campaign_metric.count.mockResolvedValue(150);
+
+      const summary = await repository.getDashboardSummary('inst-1');
+
+      expect(summary).toEqual({
+        totalCampanias: 10,
+        activas: 4,
+        totalVisitas: 150,
+        donantesConseguidos: 18,
+      });
+    });
+  });
+
+  describe('atomicUpdateDonors (BUG-02, BUG-03)', () => {
+    it('debe ejecutar $queryRaw con GREATEST(0, current_donors + delta) y retornar el nuevo valor', async () => {
+      mockPrisma.$queryRaw.mockResolvedValue([{ current_donors: 4 }]);
+
+      const nuevoTotal = await repository.atomicUpdateDonors(
+        'camp-1',
+        'inst-1',
+        -1,
+      );
+
+      expect(mockPrisma.$queryRaw).toHaveBeenCalledOnce();
+      expect(nuevoTotal).toBe(4);
     });
   });
 });

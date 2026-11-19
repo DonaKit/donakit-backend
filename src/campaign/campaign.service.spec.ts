@@ -34,6 +34,9 @@ describe('CampaignService', () => {
     findRequirements: vi.fn(),
     findFaqs: vi.fn(),
     findDashboardCampaigns: vi.fn(),
+    expireOverdueCampaigns: vi.fn(),
+    getDashboardSummary: vi.fn(),
+    atomicUpdateDonors: vi.fn(),
   };
 
   const mockAssetRepository = {
@@ -748,11 +751,18 @@ describe('CampaignService', () => {
   });
 
   describe('findDashboardCampaigns (US-20)', () => {
-    it('debe validar existencia de institución si se provee y delegar al repositorio', async () => {
+    it('debe validar existencia de institución si se provee, expirar vencidas y delegar al repositorio', async () => {
       mockRepository.institutionExists.mockResolvedValue(true);
+      mockRepository.expireOverdueCampaigns.mockResolvedValue(0);
       mockRepository.findDashboardCampaigns.mockResolvedValue([
         { id: 'camp-1', patientName: 'Lucía' },
       ]);
+      mockRepository.getDashboardSummary.mockResolvedValue({
+        totalCampanias: 1,
+        activas: 1,
+        totalVisitas: 10,
+        donantesConseguidos: 2,
+      });
 
       const result = await service.findDashboardCampaigns({
         institutionId: mockInstitutionId,
@@ -762,11 +772,13 @@ describe('CampaignService', () => {
       expect(mockRepository.institutionExists).toHaveBeenCalledWith(
         mockInstitutionId,
       );
+      expect(mockRepository.expireOverdueCampaigns).toHaveBeenCalledTimes(1);
       expect(mockRepository.findDashboardCampaigns).toHaveBeenCalledWith({
         institutionId: mockInstitutionId,
         status: 'ACTIVE',
       });
-      expect(result).toHaveLength(1);
+      expect(result.campaigns).toHaveLength(1);
+      expect(result.summary.totalCampanias).toBe(1);
     });
 
     it('debe lanzar InstitutionNotFoundException si la institución provista no existe', async () => {
@@ -862,6 +874,7 @@ describe('CampaignService', () => {
         status: 'ACTIVE',
       });
       mockRepository.findById.mockResolvedValue(mockCampaign);
+      mockRepository.atomicUpdateDonors.mockResolvedValue(5);
       mockRepository.update.mockResolvedValue(
         new CampaignEntity({
           id: mockCampaign.id,
@@ -877,6 +890,11 @@ describe('CampaignService', () => {
         incrementDonors: 1,
       });
 
+      expect(mockRepository.atomicUpdateDonors).toHaveBeenCalledWith(
+        campaignId,
+        mockInstitutionId,
+        1,
+      );
       expect(mockRepository.update).toHaveBeenCalledWith(
         campaignId,
         expect.objectContaining({
@@ -884,6 +902,88 @@ describe('CampaignService', () => {
         }),
       );
       expect(result.currentDonors).toBe(5);
+    });
+
+    it('adminUpdate debe soportar decremento seguro con incrementDonors negativo o decrementDonors', async () => {
+      mockRepository.institutionExists.mockResolvedValue(true);
+      const mockCampaign = new CampaignEntity({
+        id: campaignId,
+        institutionId: mockInstitutionId,
+        patientName: 'Pedro Gómez',
+        targetDonors: 10,
+        currentDonors: 4,
+        status: 'ACTIVE',
+      });
+      mockRepository.findById.mockResolvedValue(mockCampaign);
+      mockRepository.atomicUpdateDonors.mockResolvedValue(3);
+      mockRepository.update.mockImplementation((_id, data) =>
+        Promise.resolve(
+          new CampaignEntity({
+            id: mockCampaign.id,
+            institutionId: mockCampaign.institutionId,
+            patientName: mockCampaign.patientName,
+            targetDonors: mockCampaign.targetDonors,
+            currentDonors: data.currentDonors,
+            status: data.status ?? mockCampaign.status,
+          }),
+        ),
+      );
+
+      const result = await service.adminUpdate(mockInstitutionId, campaignId, {
+        incrementDonors: -1,
+      });
+
+      expect(mockRepository.atomicUpdateDonors).toHaveBeenCalledWith(
+        campaignId,
+        mockInstitutionId,
+        -1,
+      );
+      expect(result.currentDonors).toBe(3);
+    });
+
+    it('adminUpdate debe reactivar automáticamente a ACTIVE una campaña COMPLETED si se descuentan donantes por debajo de la meta', async () => {
+      mockRepository.institutionExists.mockResolvedValue(true);
+      const mockCampaign = new CampaignEntity({
+        id: campaignId,
+        institutionId: mockInstitutionId,
+        patientName: 'Pedro Gómez',
+        targetDonors: 10,
+        currentDonors: 5,
+        status: 'COMPLETED',
+      });
+      mockRepository.findById.mockResolvedValue(mockCampaign);
+      mockRepository.atomicUpdateDonors.mockResolvedValue(4);
+      mockRepository.update.mockImplementation((_id, data) =>
+        Promise.resolve(
+          new CampaignEntity({
+            id: mockCampaign.id,
+            institutionId: mockCampaign.institutionId,
+            patientName: mockCampaign.patientName,
+            targetDonors: mockCampaign.targetDonors,
+            currentDonors: data.currentDonors,
+            status: data.status,
+          }),
+        ),
+      );
+
+      const result = await service.adminUpdate(mockInstitutionId, campaignId, {
+        decrementDonors: 1,
+      });
+
+      expect(mockRepository.atomicUpdateDonors).toHaveBeenCalledWith(
+        campaignId,
+        mockInstitutionId,
+        -1,
+      );
+      expect(mockRepository.update).toHaveBeenCalledWith(
+        campaignId,
+        expect.objectContaining({
+          currentDonors: 4,
+          status: 'ACTIVE',
+        }),
+      );
+      expect(result.status).toBe('ACTIVE');
+      expect(result.currentDonors).toBe(4);
     });
 
     it('Escenario 1: si no hay target no se cerrará la campaña automáticamente al sumar donantes', async () => {
