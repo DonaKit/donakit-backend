@@ -48,16 +48,18 @@ export class InstitutionController {
     @Param('id') id: string,
     @Query('status') status?: string,
   ): Promise<CampaignDashboardResponseDto> {
-    const campaigns = await this.campaignService.findDashboardCampaigns({
-      institutionId: id,
-      status,
-    });
+    const { campaigns, summary } =
+      await this.campaignService.findDashboardCampaigns({
+        institutionId: id,
+        status,
+      });
 
     return {
       success: true,
       message: 'Listado de campañas de la institución obtenido exitosamente.',
       data: campaigns,
       total: campaigns.length,
+      summary,
     };
   }
 

@@ -22,9 +22,17 @@ export class CampaignDashboardItemDto {
   institution?: CampaignDashboardInstitutionDto | null;
 }
 
+export class CampaignDashboardSummaryDto {
+  totalCampanias: number;
+  activas: number;
+  totalVisitas: number;
+  donantesConseguidos: number;
+}
+
 export class CampaignDashboardResponseDto {
   success: boolean;
   message: string;
   data: CampaignDashboardItemDto[];
   total: number;
+  summary?: CampaignDashboardSummaryDto;
 }

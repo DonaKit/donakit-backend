@@ -19,7 +19,10 @@ import type { UpdateCampaignDto } from './dto/update-campaign.dto.js';
 import type { UploadCampaignAssetsDto } from './dto/upload-campaign-assets.dto.js';
 import { CampaignAssetEntity } from './entities/campaign-asset.entity.js';
 import { CampaignEntity } from './entities/campaign.entity.js';
-import type { CampaignDashboardItemDto } from './dto/campaign-dashboard-item.dto.js';
+import type {
+  CampaignDashboardItemDto,
+  CampaignDashboardSummaryDto,
+} from './dto/campaign-dashboard-item.dto.js';
 import type { FaqItemEntity } from './entities/faq-item.entity.js';
 import type { RequirementEntity } from './entities/requirement.entity.js';
 import { CampaignAssetRepository } from './repositories/campaign-asset.repository.js';
@@ -48,7 +51,7 @@ export class CampaignService {
     private readonly downloadLogRepository: DownloadLogRepository,
     private readonly storageService: StorageService,
     private readonly campaignMetricRepository?: CampaignMetricRepository,
-  ) {}
+  ) { }
 
   /**
    * Crea un nuevo pedido básico de donación persistiendo en Supabase con UUID y slug único.
@@ -95,6 +98,7 @@ export class CampaignService {
       deadline: deadlineDate,
       observations: dto.observations,
       generatedCopy: dto.generatedCopy,
+      status: 'ACTIVE',
     });
 
     this.logger.log(
@@ -213,12 +217,15 @@ export class CampaignService {
 
   /**
    * Consulta las campañas para el panel de la institución / dashboard (US-20).
-   * Devuelve las métricas de visitas acumuladas y datos clave de cada campaña.
+   * Devuelve las campañas filtradas y el resumen acumulado de métricas globales (BUG-01, BUG-04).
    */
   async findDashboardCampaigns(options: {
     institutionId?: string;
     status?: string;
-  }): Promise<CampaignDashboardItemDto[]> {
+  }): Promise<{
+    campaigns: CampaignDashboardItemDto[];
+    summary: CampaignDashboardSummaryDto;
+  }> {
     if (options.institutionId) {
       const institutionExists = await this.campaignRepository.institutionExists(
         options.institutionId,
@@ -228,14 +235,33 @@ export class CampaignService {
       }
     }
 
-    const normalizedStatus = options.status
-      ? (options.status.toUpperCase() as campaign_status | 'ALL')
-      : 'ACTIVE';
+    // Auto-expirar campañas vencidas en segundo plano antes de consultar
+    if (typeof this.campaignRepository.expireOverdueCampaigns === 'function') {
+      await this.campaignRepository.expireOverdueCampaigns();
+    }
 
-    return this.campaignRepository.findDashboardCampaigns({
-      institutionId: options.institutionId,
-      status: normalizedStatus,
-    });
+    const rawStatus = options.status?.trim();
+    const normalizedStatus =
+      rawStatus && rawStatus !== ''
+        ? (rawStatus.toUpperCase() as campaign_status | 'ALL')
+        : 'ALL';
+
+    const [campaigns, summary] = await Promise.all([
+      this.campaignRepository.findDashboardCampaigns({
+        institutionId: options.institutionId,
+        status: normalizedStatus,
+      }),
+      typeof this.campaignRepository.getDashboardSummary === 'function'
+        ? this.campaignRepository.getDashboardSummary(options.institutionId)
+        : Promise.resolve({
+          totalCampanias: 0,
+          activas: 0,
+          totalVisitas: 0,
+          donantesConseguidos: 0,
+        }),
+    ]);
+
+    return { campaigns, summary };
   }
 
   /**
@@ -279,12 +305,30 @@ export class CampaignService {
     // 1. Validar existencia y pertenencia a la institución
     const campaign = await this.adminFindOne(institutionId, campaignId);
 
-    // 2. Calcular nueva cantidad de donantes si se envía incremento o fijación directa
-    let newCurrentDonors: number | undefined;
+    // 2. Calcular nueva cantidad de donantes si se envía incremento, decremento o fijación directa
+    let deltaDonors: number | undefined;
     if (dto.incrementDonors !== undefined) {
-      newCurrentDonors = (campaign.currentDonors ?? 0) + dto.incrementDonors;
+      deltaDonors = dto.incrementDonors;
+    } else if (dto.decrementDonors !== undefined) {
+      deltaDonors = -dto.decrementDonors;
+    }
+
+    let newCurrentDonors: number | undefined;
+    if (deltaDonors !== undefined) {
+      if (typeof this.campaignRepository.atomicUpdateDonors === 'function') {
+        newCurrentDonors = await this.campaignRepository.atomicUpdateDonors(
+          campaignId,
+          institutionId,
+          deltaDonors,
+        );
+      } else {
+        newCurrentDonors = Math.max(
+          0,
+          (campaign.currentDonors ?? 0) + deltaDonors,
+        );
+      }
     } else if (dto.currentDonors !== undefined) {
-      newCurrentDonors = dto.currentDonors;
+      newCurrentDonors = Math.max(0, dto.currentDonors);
     }
 
     // 3. Manejo de cambio de nombre de paciente (regeneración de slug si aplica)
@@ -328,26 +372,39 @@ export class CampaignService {
       }
     }
 
-    // 5. Determinar estado de la campaña (Cierre automático si alcanza la meta o explícito)
+    // 5. Determinar estado de la campaña (Cierre automático si alcanza la meta, reactivación si se resta en completada o explícito)
     const effectiveTarget =
       dto.targetDonors !== undefined
         ? dto.targetDonors
         : campaign.targetDonors;
 
     let resolvedStatus = dto.status;
-    if (
-      resolvedStatus === undefined &&
-      campaign.status === 'ACTIVE' &&
-      effectiveTarget !== null &&
-      effectiveTarget !== undefined &&
-      effectiveTarget > 0 &&
-      newCurrentDonors !== undefined &&
-      newCurrentDonors >= effectiveTarget
-    ) {
-      resolvedStatus = 'COMPLETED';
-      this.logger.log(
-        `Meta alcanzada para campaña '${campaignId}' (${newCurrentDonors}/${effectiveTarget}). Estado actualizado automáticamente a 'COMPLETED'.`,
-      );
+    if (resolvedStatus === undefined) {
+      if (
+        campaign.status === 'ACTIVE' &&
+        effectiveTarget !== null &&
+        effectiveTarget !== undefined &&
+        effectiveTarget > 0 &&
+        newCurrentDonors !== undefined &&
+        newCurrentDonors >= effectiveTarget
+      ) {
+        resolvedStatus = 'COMPLETED';
+        this.logger.log(
+          `Meta alcanzada para campaña '${campaignId}' (${newCurrentDonors}/${effectiveTarget}). Estado actualizado automáticamente a 'COMPLETED'.`,
+        );
+      } else if (
+        campaign.status === 'COMPLETED' &&
+        deltaDonors !== undefined &&
+        deltaDonors < 0 &&
+        (effectiveTarget === null ||
+          effectiveTarget === undefined ||
+          (newCurrentDonors !== undefined && newCurrentDonors < effectiveTarget))
+      ) {
+        resolvedStatus = 'ACTIVE';
+        this.logger.log(
+          `Donante restado en campaña completada '${campaignId}' (${newCurrentDonors ?? 0}/${effectiveTarget ?? 'sin meta'}). Estado reactivado automáticamente a 'ACTIVE'.`,
+        );
+      }
     }
 
     // 6. Persistir cambios en el repositorio

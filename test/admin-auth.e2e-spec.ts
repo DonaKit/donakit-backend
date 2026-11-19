@@ -140,12 +140,15 @@ describe('AdminAuthGuard (e2e) - Protección de endpoints administrativos', () =
       .set('Authorization', `Bearer ${adminToken}`)
       .expect(200);
     expect(listRes.body.success).toBe(true);
+    expect(listRes.body.summary).toBeDefined();
+    expect(listRes.body.summary.totalCampanias).toBeGreaterThanOrEqual(1);
 
     const instListRes = await request(app.getHttpServer())
       .get(`/institutions/${institutionId}/campaigns`)
       .set('Authorization', `Bearer ${adminToken}`)
       .expect(200);
     expect(instListRes.body.success).toBe(true);
+    expect(instListRes.body.summary).toBeDefined();
 
     const detailRes = await request(app.getHttpServer())
       .get(`/institutions/${institutionId}/campaigns/${testCampaignId}`)
@@ -160,7 +163,22 @@ describe('AdminAuthGuard (e2e) - Protección de endpoints administrativos', () =
       .expect(200);
     expect(patchRes.body.data.currentDonors).toBe(1);
     expect(patchRes.body.data.status).toBe('COMPLETED');
-  });
+  }, 45000);
+
+  it('debe descontar donantes con decremento atómico (-1) y reactivar campaña COMPLETED a ACTIVE', async () => {
+    const adminToken = signAdminJwt(
+      { email: 'admin-e2e@garrahan.gov.ar', name: 'Admin E2E' },
+      testSecret,
+    );
+
+    const decrementRes = await request(app.getHttpServer())
+      .patch(`/institutions/${institutionId}/campaigns/${testCampaignId}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ incrementDonors: -1 })
+      .expect(200);
+    expect(decrementRes.body.data.currentDonors).toBe(0);
+    expect(decrementRes.body.data.status).toBe('ACTIVE');
+  }, 45000);
 
   it('debe permitir el preflight CORS con cabecera Authorization desde el origen configurado', async () => {
     const res = await request(app.getHttpServer())

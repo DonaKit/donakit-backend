@@ -151,7 +151,7 @@ Disponible tanto como sub-recurso de la institución como en la colección de ca
   * `GET /campaigns?institutionId=...` *(o `GET /campaigns` para dashboard general)*
 * **Autenticación:** Requiere cabecera `Authorization: Bearer <jwt>` de administrador (`401` si falta o expiró, `403` si no tiene rol/email autorizado).
 * **Query Params (opcionales):**
-  * `status`: Filtra por estado (`ACTIVE`, `COMPLETED`, `EXPIRED`, `CANCELLED` o `ALL`). Por defecto: `ACTIVE`.
+  * `status`: Filtra por estado (`ACTIVE`, `COMPLETED`, `EXPIRED`, `CANCELLED` o `ALL`). Si se omite o se indica `ALL`, devuelve todas las campañas sin filtrar por estado (BUG-01).
   * `institutionId`: (cuando se usa `/campaigns`) filtra por centro de salud.
 
 #### Respuesta `200 OK`:
@@ -160,6 +160,12 @@ Disponible tanto como sub-recurso de la institución como en la colección de ca
   "success": true,
   "message": "Listado de campañas para panel administrativo obtenido exitosamente.",
   "total": 1,
+  "summary": {
+    "totalCampanias": 42,
+    "activas": 15,
+    "totalVisitas": 1280,
+    "donantesConseguidos": 85
+  },
   "data": [
     {
       "id": "b73a9e21-4f10-4821-bdfe-7bd73db49b06",
@@ -193,6 +199,8 @@ Permite al personal administrativo de la institución gestionar directamente las
 #### Reglas de Negocio para Cierre y Avance:
 1. **Sin meta definida (`targetDonors = null` o vacío):** La campaña **nunca se cerrará automáticamente**, sin importar cuántos donantes se registren. Permanecerá abierta (`ACTIVE`) hasta que el administrador o la familia envíen explícitamente `status: "COMPLETED"` (o `"CANCELLED"`).
 2. **Con meta definida (`targetDonors > 0`):** Si el administrador actualiza o incrementa la cantidad de donantes alcanzando o superando la meta requerida (`currentDonors >= targetDonors`) sin especificar un nuevo estado, el sistema **cambia automáticamente el estado a `"COMPLETED"`** y fija el avance en `progressPercentage: 100%`.
+3. **Decremento seguro y reactivación automática (BUG-02, BUG-03):** El administrador puede descontar donantes enviando `incrementDonors: -1` o `decrementDonors: 1`. La operación es atómica en la base de datos (`GREATEST(0, current_donors - 1)`). Si se descuenta un donante sobre una campaña que estaba en `COMPLETED` y el total queda por debajo de la meta, el sistema la reactiva automáticamente a `ACTIVE`.
+4. **Reapertura de campañas vencidas (BUG-04):** Permite reanudar una campaña en estado `EXPIRED` enviando una fecha futura en `deadline` junto con `status: "ACTIVE"`.
 
 #### 1. Modificar y Guardar Cambios de la Campaña (`PATCH /institutions/:institutionId/campaigns/:campaignId`)
 
@@ -219,16 +227,24 @@ Permite al personal administrativo de la institución gestionar directamente las
 }
 ```
 
+*Ejemplo de resta de donante (-1 donante atómico):*
+```json
+{
+  "incrementDonors": -1
+}
+```
+
 #### Parámetros del Body:
 
 | Campo | Tipo | Obligatorio | Descripción |
 | :--- | :--- | :---: | :--- |
 | `currentDonors` | `integer` | No | Fija el total acumulado de donantes que asistieron (0 a 1000). Recalcula automáticamente el `progressPercentage`. |
-| `incrementDonors` | `integer` | No | Suma directamente la cantidad indicada al total de donantes actual (ej. `1` para registrar un nuevo donante que llegó al hospital). |
-| `status` | `string` | No | Estado de la solicitud (`ACTIVE`, `COMPLETED`, `EXPIRED`, `CANCELLED`). Permite cerrar la campaña marcándola como `COMPLETED`. |
+| `incrementDonors` | `integer` | No | Aplica un incremento o decremento atómico (-100 a 100). Soporta `-1` para descontar un donante garantizando no descender de 0. |
+| `decrementDonors` | `integer` | No | Descuenta atómicamente la cantidad indicada (1 a 100) garantizando no descender de 0. |
+| `status` | `string` | No | Estado de la solicitud (`ACTIVE`, `COMPLETED`, `EXPIRED`, `CANCELLED`). Permite cerrar (`COMPLETED`) o reactivar (`ACTIVE`) la campaña. |
 | `targetDonors` | `integer` / `null` | No | Permite ajustar la meta requerida de donantes si cambia el requerimiento clínico. |
-| `deadline` | `string` / `null` | No | Prorroga o actualiza la fecha límite en formato ISO 8601 o `YYYY-MM-DD`. |
-| `patientName` | `string` | No | Corrige el nombre del paciente (regenera el slug URL-friendly si cambia). |
+| `deadline` | `string` / `null` | No | Prorroga o actualiza la fecha límite en formato ISO 8601 o `YYYY-MM-DD`. Permite enviar `null` para eliminar la fecha límite. |
+| `patientName` | `string` | No | Corrige el nombre del paciente (acepta letras, diacríticos, puntos e iniciales, guiones y apóstrofos tipográficos). |
 | `bloodType` | `string` | No | Modifica o corrige el grupo sanguíneo requerido. |
 | `donationType` | `string` / `null` | No | Modifica el tipo de donación (ej. "Plaquetas", "Sangre entera"). |
 | `observations` | `string` / `null` | No | Instrucciones especiales actualizadas para los donantes. |
@@ -271,9 +287,9 @@ Devuelve el detalle integral de la campaña (incluyendo el contador acumulado de
 
 ---
 
-### 3.3. Crear Pedido de Donación (Generación de Kit / Borrador)
+### 3.3. Crear Pedido de Donación (Generación de Kit)
 
-Crea el registro del pedido con estado **`DRAFT`**, genera un UUID único, un slug seguro para la URL amigable y un `editToken` para control de cambios posterior.
+Crea el registro del pedido directamente en estado **`ACTIVE`** (BUG-07), genera un UUID único, un slug seguro para la URL amigable y un `editToken` para control de cambios posterior.
 
 * **Método:** `POST`
 * **Ruta:** `/campaigns`
@@ -297,7 +313,7 @@ Crea el registro del pedido con estado **`DRAFT`**, genera un UUID único, un sl
 
 | Campo | Tipo | Obligatorio | Restricciones / Reglas |
 | :--- | :--- | :---: | :--- |
-| `patientName` | `string` | **Sí** | 2 a 255 caracteres. Solo letras, espacios, guiones o apóstrofes. No permite números. |
+| `patientName` | `string` | **Sí** | 2 a 255 caracteres. Acepta letras, tildes/marcas diacríticas (`\p{M}`), puntos e iniciales (ej. "Juan C. Pérez"), guiones y apóstrofos tipográficos ("D’Angelo"). No permite números. |
 | `institutionId` | `string` (UUID v4) | **Sí** | Debe existir en la base de datos y tener `is_active: true`. |
 | `bloodType` | `string` | **Sí** | Valores permitidos: `A+`, `A-`, `B+`, `B-`, `AB+`, `AB-`, `0+`, `0-`, `O+`, `O-`, `TODOS`. |
 | `donationType` | `string` | No | Máx. 50 caracteres. Por defecto: `"Sangre entera"`. |
@@ -323,7 +339,7 @@ Crea el registro del pedido con estado **`DRAFT`**, genera un UUID único, un sl
     "deadline": "2026-12-31T00:00:00.000Z",
     "observations": "Presentarse con DNI en ayuno de grasas.",
     "generatedCopy": null,
-    "status": "DRAFT",
+    "status": "ACTIVE",
     "createdAt": "2026-10-28T19:40:00.000Z",
     "updatedAt": "2026-10-28T19:40:00.000Z",
     "institution": {
