@@ -20,6 +20,7 @@ import { CampaignAssetsResponseDto } from './dto/campaign-assets-response.dto.js
 import { CampaignDashboardResponseDto } from './dto/campaign-dashboard-item.dto.js';
 import { CampaignResponseDto } from './dto/campaign-response.dto.js';
 import { CreateCampaignDto } from './dto/create-campaign.dto.js';
+import { DashboardCampaignsQueryDto } from './dto/dashboard-campaigns-query.dto.js';
 import { PublicCampaignResponseDto } from './dto/public-campaign.dto.js';
 import { UpdateCampaignDto } from './dto/update-campaign.dto.js';
 import { UploadCampaignAssetsDto } from './dto/upload-campaign-assets.dto.js';
@@ -256,27 +257,47 @@ export class CampaignController {
   /**
    * Endpoint para listar las campañas en el panel de reportería / dashboard (US-20).
    * Devuelve las solicitudes y campañas activas con información clave:
-   * nombre del paciente, fechas, estado, avance de donantes y total de visitas.
+   * nombre del paciente, fechas, estado, avance de donantes, paginación y total de visitas.
    */
   @Get()
   @UseGuards(AdminAuthGuard)
   async findDashboard(
-    @Query('institutionId') institutionId?: string,
-    @Query('status') status?: string,
+    @Query('institutionId') institutionIdParam?: string,
+    @Query('status') statusParam?: string,
+    @Query()
+    queryParams?: DashboardCampaignsQueryDto & { institutionId?: string },
   ): Promise<CampaignDashboardResponseDto> {
-    const { campaigns, summary } =
-      await this.campaignService.findDashboardCampaigns({
-        institutionId,
-        status,
-      });
+    const institutionId = institutionIdParam ?? queryParams?.institutionId;
+    const status = statusParam ?? queryParams?.status;
+    const page = queryParams?.page ?? 1;
+    const limit = queryParams?.limit ?? 30;
+
+    const result = await this.campaignService.findDashboardCampaigns({
+      institutionId,
+      status,
+      page,
+      limit,
+    });
+
+    const campaigns =
+      result.campaigns ??
+      (Array.isArray(result) ? result : (result as any).data ?? []);
+    const pagination = result.pagination ?? {
+      total: campaigns.length,
+      page,
+      limit,
+      totalPages: Math.max(1, Math.ceil(campaigns.length / limit)),
+    };
 
     return {
       success: true,
       message:
         'Listado de campañas para panel administrativo obtenido exitosamente.',
       data: campaigns,
-      total: campaigns.length,
-      summary,
+      campaigns,
+      pagination,
+      total: pagination.total,
+      ...(result.summary ? { summary: result.summary } : {}),
     };
   }
 

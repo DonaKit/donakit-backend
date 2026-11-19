@@ -39,6 +39,23 @@ export interface UpdateCampaignData {
   status?: campaign_status;
 }
 
+export interface DashboardCampaignsRepositoryResult
+  extends Array<CampaignDashboardItemDto> {
+  campaigns: CampaignDashboardItemDto[];
+  pagination: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
+  summary?: {
+    totalCampanias: number;
+    activas: number;
+    totalVisitas: number;
+    donantesConseguidos: number;
+  };
+}
+
 export interface ICampaignRepository {
   create(data: CreateCampaignData): Promise<CampaignEntity>;
   findById(id: string): Promise<CampaignEntity | null>;
@@ -56,7 +73,9 @@ export interface ICampaignRepository {
   findDashboardCampaigns(options: {
     institutionId?: string;
     status?: campaign_status | 'ALL';
-  }): Promise<CampaignDashboardItemDto[]>;
+    page?: number;
+    limit?: number;
+  }): Promise<DashboardCampaignsRepositoryResult>;
   expireOverdueCampaigns(): Promise<number>;
   getDashboardSummary(
     institutionId?: string,

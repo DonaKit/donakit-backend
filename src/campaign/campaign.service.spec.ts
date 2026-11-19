@@ -947,7 +947,7 @@ describe('CampaignService', () => {
         id: campaignId,
         institutionId: mockInstitutionId,
         patientName: 'Pedro Gómez',
-        targetDonors: 5,
+        targetDonors: 10,
         currentDonors: 5,
         status: 'COMPLETED',
       });
@@ -1063,6 +1063,213 @@ describe('CampaignService', () => {
       expect(result.status).toBe('COMPLETED');
       expect(result.currentDonors).toBe(8);
       expect(result.targetDonors).toBe(8);
+    });
+
+    it('debe rechazar el decremento de donantes si la campaña está en COMPLETED y alcanzó su meta (incrementDonors: -1)', async () => {
+      mockRepository.institutionExists.mockResolvedValue(true);
+      const mockCampaign = new CampaignEntity({
+        id: campaignId,
+        institutionId: mockInstitutionId,
+        patientName: 'Sofía Martínez',
+        targetDonors: 10,
+        currentDonors: 10,
+        status: 'COMPLETED',
+      });
+      mockRepository.findById.mockResolvedValue(mockCampaign);
+
+      await expect(
+        service.adminUpdate(mockInstitutionId, campaignId, {
+          incrementDonors: -1,
+        }),
+      ).rejects.toThrow(
+        'No está permitido restar donantes a una campaña completada que alcanzó su meta. Debe reabrir la campaña primero.',
+      );
+    });
+
+    it('debe rechazar el decremento de donantes si la campaña está en COMPLETED y alcanzó su meta (currentDonors: 9)', async () => {
+      mockRepository.institutionExists.mockResolvedValue(true);
+      const mockCampaign = new CampaignEntity({
+        id: campaignId,
+        institutionId: mockInstitutionId,
+        patientName: 'Sofía Martínez',
+        targetDonors: 10,
+        currentDonors: 10,
+        status: 'COMPLETED',
+      });
+      mockRepository.findById.mockResolvedValue(mockCampaign);
+
+      await expect(
+        service.adminUpdate(mockInstitutionId, campaignId, {
+          currentDonors: 9,
+        }),
+      ).rejects.toThrow(
+        'No está permitido restar donantes a una campaña completada que alcanzó su meta. Debe reabrir la campaña primero.',
+      );
+    });
+
+    it('debe rechazar la modificación directa de currentDonors si la campaña no está activa ni en reapertura', async () => {
+      mockRepository.institutionExists.mockResolvedValue(true);
+      const mockCampaign = new CampaignEntity({
+        id: campaignId,
+        institutionId: mockInstitutionId,
+        patientName: 'Sofía Martínez',
+        targetDonors: 20,
+        currentDonors: 5,
+        status: 'CANCELLED',
+      });
+      mockRepository.findById.mockResolvedValue(mockCampaign);
+
+      await expect(
+        service.adminUpdate(mockInstitutionId, campaignId, {
+          currentDonors: 6,
+        }),
+      ).rejects.toThrow(
+        'Solo se puede modificar la cantidad de donantes en campañas que se encuentren activas.',
+      );
+    });
+
+    it('debe permitir reabrir a ACTIVE una campaña completada si se provee una nueva meta mayor', async () => {
+      mockRepository.institutionExists.mockResolvedValue(true);
+      const mockCampaign = new CampaignEntity({
+        id: campaignId,
+        institutionId: mockInstitutionId,
+        patientName: 'Sofía Martínez',
+        targetDonors: 10,
+        currentDonors: 10,
+        status: 'COMPLETED',
+      });
+      mockRepository.findById.mockResolvedValue(mockCampaign);
+      mockRepository.update.mockImplementation((_id, data) =>
+        Promise.resolve(
+          new CampaignEntity({
+            id: mockCampaign.id,
+            institutionId: mockCampaign.institutionId,
+            patientName: mockCampaign.patientName,
+            targetDonors: data.targetDonors ?? mockCampaign.targetDonors,
+            currentDonors: mockCampaign.currentDonors,
+            status: data.status ?? mockCampaign.status,
+          }),
+        ),
+      );
+
+      const result = await service.adminUpdate(mockInstitutionId, campaignId, {
+        status: 'ACTIVE',
+        deadline: '2026-12-01',
+        targetDonors: 15,
+      });
+
+      expect(mockRepository.update).toHaveBeenCalledWith(
+        campaignId,
+        expect.objectContaining({
+          status: 'ACTIVE',
+          targetDonors: 15,
+        }),
+      );
+      expect(result.status).toBe('ACTIVE');
+      expect(result.targetDonors).toBe(15);
+    });
+
+    it('debe permitir reabrir a ACTIVE una campaña completada si se remueve la meta (targetDonors: null)', async () => {
+      mockRepository.institutionExists.mockResolvedValue(true);
+      const mockCampaign = new CampaignEntity({
+        id: campaignId,
+        institutionId: mockInstitutionId,
+        patientName: 'Sofía Martínez',
+        targetDonors: 10,
+        currentDonors: 10,
+        status: 'COMPLETED',
+      });
+      mockRepository.findById.mockResolvedValue(mockCampaign);
+      mockRepository.update.mockImplementation((_id, data) =>
+        Promise.resolve(
+          new CampaignEntity({
+            id: mockCampaign.id,
+            institutionId: mockCampaign.institutionId,
+            patientName: mockCampaign.patientName,
+            targetDonors: data.targetDonors,
+            currentDonors: mockCampaign.currentDonors,
+            status: data.status ?? mockCampaign.status,
+          }),
+        ),
+      );
+
+      const result = await service.adminUpdate(mockInstitutionId, campaignId, {
+        status: 'ACTIVE',
+        deadline: '2026-12-01',
+        targetDonors: null,
+      });
+
+      expect(mockRepository.update).toHaveBeenCalledWith(
+        campaignId,
+        expect.objectContaining({
+          status: 'ACTIVE',
+          targetDonors: null,
+        }),
+      );
+      expect(result.status).toBe('ACTIVE');
+      expect(result.targetDonors).toBeNull();
+    });
+
+    it('debe rechazar la reapertura si la nueva meta es menor o igual a los donantes ya conseguidos', async () => {
+      mockRepository.institutionExists.mockResolvedValue(true);
+      const mockCampaign = new CampaignEntity({
+        id: campaignId,
+        institutionId: mockInstitutionId,
+        patientName: 'Sofía Martínez',
+        targetDonors: 10,
+        currentDonors: 10,
+        status: 'COMPLETED',
+      });
+      mockRepository.findById.mockResolvedValue(mockCampaign);
+
+      await expect(
+        service.adminUpdate(mockInstitutionId, campaignId, {
+          status: 'ACTIVE',
+          deadline: '2026-12-01',
+          targetDonors: 10,
+        }),
+      ).rejects.toThrow(
+        'Para reabrir una campaña cuya meta fue alcanzada, debe ingresar una nueva meta de donantes mayor a los donantes ya conseguidos (10) o dejarla sin límite fijado (null).',
+      );
+    });
+
+    it('debe actualizar donantes conseguidos en campañas activas y autocompletar si alcanza la meta', async () => {
+      mockRepository.institutionExists.mockResolvedValue(true);
+      const mockCampaign = new CampaignEntity({
+        id: campaignId,
+        institutionId: mockInstitutionId,
+        patientName: 'Sofía Martínez',
+        targetDonors: 12,
+        currentDonors: 5,
+        status: 'ACTIVE',
+      });
+      mockRepository.findById.mockResolvedValue(mockCampaign);
+      mockRepository.update.mockImplementation((_id, data) =>
+        Promise.resolve(
+          new CampaignEntity({
+            id: mockCampaign.id,
+            institutionId: mockCampaign.institutionId,
+            patientName: mockCampaign.patientName,
+            targetDonors: mockCampaign.targetDonors,
+            currentDonors: data.currentDonors,
+            status: data.status ?? mockCampaign.status,
+          }),
+        ),
+      );
+
+      const result = await service.adminUpdate(mockInstitutionId, campaignId, {
+        currentDonors: 12,
+      });
+
+      expect(mockRepository.update).toHaveBeenCalledWith(
+        campaignId,
+        expect.objectContaining({
+          currentDonors: 12,
+          status: 'COMPLETED',
+        }),
+      );
+      expect(result.status).toBe('COMPLETED');
+      expect(result.currentDonors).toBe(12);
     });
   });
 });

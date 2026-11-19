@@ -22,6 +22,13 @@ export class CampaignDashboardItemDto {
   institution?: CampaignDashboardInstitutionDto | null;
 }
 
+export class DashboardPaginationDto {
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
 export class CampaignDashboardSummaryDto {
   totalCampanias: number;
   activas: number;
@@ -29,10 +36,14 @@ export class CampaignDashboardSummaryDto {
   donantesConseguidos: number;
 }
 
+export type DashboardSummaryDto = CampaignDashboardSummaryDto;
+
 export class CampaignDashboardResponseDto {
   success: boolean;
   message: string;
   data: CampaignDashboardItemDto[];
+  campaigns?: CampaignDashboardItemDto[];
+  pagination?: DashboardPaginationDto;
   total: number;
   summary?: CampaignDashboardSummaryDto;
 }

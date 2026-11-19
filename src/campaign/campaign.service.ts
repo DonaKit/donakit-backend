@@ -19,10 +19,7 @@ import type { UpdateCampaignDto } from './dto/update-campaign.dto.js';
 import type { UploadCampaignAssetsDto } from './dto/upload-campaign-assets.dto.js';
 import { CampaignAssetEntity } from './entities/campaign-asset.entity.js';
 import { CampaignEntity } from './entities/campaign.entity.js';
-import type {
-  CampaignDashboardItemDto,
-  CampaignDashboardSummaryDto,
-} from './dto/campaign-dashboard-item.dto.js';
+import type { DashboardCampaignsRepositoryResult } from './interfaces/campaign-repository.interface.js';
 import type { FaqItemEntity } from './entities/faq-item.entity.js';
 import type { RequirementEntity } from './entities/requirement.entity.js';
 import { CampaignAssetRepository } from './repositories/campaign-asset.repository.js';
@@ -217,15 +214,14 @@ export class CampaignService {
 
   /**
    * Consulta las campañas para el panel de la institución / dashboard (US-20).
-   * Devuelve las campañas filtradas y el resumen acumulado de métricas globales (BUG-01, BUG-04).
+   * Devuelve las métricas de visitas acumuladas, paginación y datos clave de cada campaña.
    */
   async findDashboardCampaigns(options: {
     institutionId?: string;
     status?: string;
-  }): Promise<{
-    campaigns: CampaignDashboardItemDto[];
-    summary: CampaignDashboardSummaryDto;
-  }> {
+    page?: number;
+    limit?: number;
+  }): Promise<DashboardCampaignsRepositoryResult> {
     if (options.institutionId) {
       const institutionExists = await this.campaignRepository.institutionExists(
         options.institutionId,
@@ -244,24 +240,50 @@ export class CampaignService {
     const normalizedStatus =
       rawStatus && rawStatus !== ''
         ? (rawStatus.toUpperCase() as campaign_status | 'ALL')
-        : 'ALL';
+        : 'ACTIVE';
 
-    const [campaigns, summary] = await Promise.all([
-      this.campaignRepository.findDashboardCampaigns({
-        institutionId: options.institutionId,
-        status: normalizedStatus,
-      }),
-      typeof this.campaignRepository.getDashboardSummary === 'function'
-        ? this.campaignRepository.getDashboardSummary(options.institutionId)
-        : Promise.resolve({
-          totalCampanias: 0,
-          activas: 0,
-          totalVisitas: 0,
-          donantesConseguidos: 0,
-        }),
-    ]);
+    const result = await this.campaignRepository.findDashboardCampaigns({
+      institutionId: options.institutionId,
+      status: normalizedStatus,
+      page: options.page,
+      limit: options.limit,
+    });
 
-    return { campaigns, summary };
+    if (Array.isArray(result)) {
+      if (!result.campaigns) {
+        result.campaigns = result;
+      }
+      if (!result.pagination) {
+        result.pagination = {
+          total: result.length,
+          page: options.page ?? 1,
+          limit: options.limit ?? 30,
+          totalPages: Math.max(
+            1,
+            Math.ceil(result.length / (options.limit ?? 30)),
+          ),
+        };
+      }
+      if (!result.summary) {
+        if (
+          typeof (this.campaignRepository as any).getDashboardSummary ===
+          'function'
+        ) {
+          result.summary = await (
+            this.campaignRepository as any
+          ).getDashboardSummary(options.institutionId);
+        } else {
+          result.summary = {
+            totalCampanias: result.length,
+            activas: result.length,
+            totalVisitas: 0,
+            donantesConseguidos: 0,
+          };
+        }
+      }
+    }
+
+    return result;
   }
 
   /**
@@ -305,6 +327,12 @@ export class CampaignService {
     // 1. Validar existencia y pertenencia a la institución
     const campaign = await this.adminFindOne(institutionId, campaignId);
 
+    const actuales = campaign.currentDonors ?? 0;
+    const metaPreviaAlcanzada =
+      campaign.targetDonors !== null &&
+      campaign.targetDonors !== undefined &&
+      actuales >= campaign.targetDonors;
+
     // 2. Calcular nueva cantidad de donantes si se envía incremento, decremento o fijación directa
     let deltaDonors: number | undefined;
     if (dto.incrementDonors !== undefined) {
@@ -313,19 +341,61 @@ export class CampaignService {
       deltaDonors = -dto.decrementDonors;
     }
 
+    // 3. Regla 1: No permitir decremento (-1) en completadas con meta alcanzada antes de reabrir
+    const intentaDecrementar =
+      (deltaDonors !== undefined && deltaDonors < 0) ||
+      (dto.currentDonors !== undefined && dto.currentDonors < actuales);
+
+    if (
+      campaign.status === 'COMPLETED' &&
+      metaPreviaAlcanzada &&
+      intentaDecrementar
+    ) {
+      throw new BadRequestException(
+        'No está permitido restar donantes a una campaña completada que alcanzó su meta. Debe reabrir la campaña primero.',
+      );
+    }
+
+    // 4. Regla 3: Edición directa de donantes solo en campañas activas (o en reapertura a ACTIVE)
+    if (
+      dto.currentDonors !== undefined &&
+      campaign.status !== 'ACTIVE' &&
+      dto.status !== 'ACTIVE'
+    ) {
+      throw new BadRequestException(
+        'Solo se puede modificar la cantidad de donantes en campañas que se encuentren activas.',
+      );
+    }
+
+    // 5. Regla 2: Reapertura controlada de completadas con meta alcanzada (exige nueva meta > actuales o null)
+    if (
+      campaign.status === 'COMPLETED' &&
+      metaPreviaAlcanzada &&
+      dto.status === 'ACTIVE'
+    ) {
+      const nuevaMeta = dto.targetDonors;
+      // Si no envía targetDonors o envía una meta menor o igual a los donantes ya asistidos
+      if (
+        nuevaMeta !== null &&
+        (nuevaMeta === undefined || nuevaMeta <= actuales)
+      ) {
+        throw new BadRequestException(
+          `Para reabrir una campaña cuya meta fue alcanzada, debe ingresar una nueva meta de donantes mayor a los donantes ya conseguidos (${actuales}) o dejarla sin límite fijado (null).`,
+        );
+      }
+    }
+
     let newCurrentDonors: number | undefined;
     if (deltaDonors !== undefined) {
-      if (typeof this.campaignRepository.atomicUpdateDonors === 'function') {
-        newCurrentDonors = await this.campaignRepository.atomicUpdateDonors(
-          campaignId,
-          institutionId,
-          deltaDonors,
-        );
+      if (
+        typeof (this.campaignRepository as any).atomicUpdateDonors ===
+        'function'
+      ) {
+        newCurrentDonors = await (
+          this.campaignRepository as any
+        ).atomicUpdateDonors(campaignId, institutionId, deltaDonors);
       } else {
-        newCurrentDonors = Math.max(
-          0,
-          (campaign.currentDonors ?? 0) + deltaDonors,
-        );
+        newCurrentDonors = Math.max(0, actuales + deltaDonors);
       }
     } else if (dto.currentDonors !== undefined) {
       newCurrentDonors = Math.max(0, dto.currentDonors);
