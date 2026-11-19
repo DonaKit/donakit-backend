@@ -1,0 +1,1275 @@
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { CampaignService } from './campaign.service.js';
+import type { CreateCampaignDto } from './dto/create-campaign.dto.js';
+import type { UploadCampaignAssetsDto } from './dto/upload-campaign-assets.dto.js';
+import { CampaignAssetEntity } from './entities/campaign-asset.entity.js';
+import { CampaignEntity } from './entities/campaign.entity.js';
+import type { CampaignAssetRepository } from './repositories/campaign-asset.repository.js';
+import type { CampaignRepository } from './repositories/campaign.repository.js';
+import type { DownloadLogRepository } from './repositories/download-log.repository.js';
+import type { StorageService } from '../storage/storage.service.js';
+import { InstitutionNotFoundException } from '../common/exceptions/institution-not-found.exception.js';
+
+describe('CampaignService', () => {
+  let service: CampaignService;
+  let repository: CampaignRepository;
+  let assetRepository: CampaignAssetRepository;
+  let downloadLogRepository: DownloadLogRepository;
+  let storageService: StorageService;
+
+  const mockInstitutionId = '63a65bfe-3c92-484e-b658-d3446355e5c2';
+
+  const mockRepository = {
+    institutionExists: vi.fn(),
+    create: vi.fn(),
+    findById: vi.fn(),
+    findBySlug: vi.fn(),
+    updateStatus: vi.fn(),
+    update: vi.fn(),
+    findRequirements: vi.fn(),
+    findFaqs: vi.fn(),
+    findDashboardCampaigns: vi.fn(),
+    expireOverdueCampaigns: vi.fn(),
+    getDashboardSummary: vi.fn(),
+    atomicUpdateDonors: vi.fn(),
+  };
+
+  const mockAssetRepository = {
+    save: vi.fn(),
+    findByCampaignId: vi.fn(),
+    findByCampaignAndFormat: vi.fn(),
+  };
+
+  const mockDownloadLogRepository = {
+    create: vi.fn(),
+    countByCampaignId: vi.fn(),
+  };
+
+  const mockStorageService = {
+    uploadFile: vi.fn(),
+    downloadFile: vi.fn(),
+    isSameFile: vi.fn(),
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    repository = mockRepository as unknown as CampaignRepository;
+    assetRepository = mockAssetRepository as unknown as CampaignAssetRepository;
+    downloadLogRepository =
+      mockDownloadLogRepository as unknown as DownloadLogRepository;
+    storageService = mockStorageService as unknown as StorageService;
+    service = new CampaignService(
+      repository,
+      assetRepository,
+      downloadLogRepository,
+      storageService,
+    );
+  });
+
+  describe('create', () => {
+    const validDto: CreateCampaignDto = {
+      patientName: 'Esteban Quispe',
+      institutionId: mockInstitutionId,
+      bloodType: '0+',
+      donationType: 'Sangre entera',
+      targetDonors: 10,
+      deadline: '2026-12-31',
+      observations: 'Presentarse en ayunas de grasas.',
+    };
+
+    it('debe crear un pedido de donación exitosamente cuando los datos son válidos', async () => {
+      mockRepository.institutionExists.mockResolvedValue(true);
+      mockRepository.findBySlug.mockResolvedValue(null);
+      mockRepository.create.mockImplementation((data) =>
+        Promise.resolve(
+          new CampaignEntity({
+            id: data.id,
+            slug: data.slug,
+            editToken: data.editToken,
+            institutionId: data.institutionId,
+            patientName: data.patientName,
+            bloodType: data.bloodType,
+            donationType: data.donationType,
+            targetDonors: data.targetDonors,
+            deadline: data.deadline,
+            observations: data.observations,
+            status: data.status,
+          }),
+        ),
+      );
+
+      const result = await service.create(validDto);
+
+      expect(mockRepository.institutionExists).toHaveBeenCalledWith(
+        mockInstitutionId,
+      );
+      expect(mockRepository.create).toHaveBeenCalled();
+      expect(result.patientName).toBe(validDto.patientName);
+      expect(result.bloodType).toBe(validDto.bloodType);
+      expect(result.id).toBeDefined();
+      expect(result.slug).toMatch(/^donantes-esteban-quispe-[a-f0-9]{6}$/);
+      expect(result.editToken).toBeDefined();
+    });
+
+    it('debe lanzar InstitutionNotFoundException si el centro de salud no existe o está inactivo', async () => {
+      mockRepository.institutionExists.mockResolvedValue(false);
+
+      await expect(service.create(validDto)).rejects.toThrow(
+        InstitutionNotFoundException,
+      );
+      expect(mockRepository.create).not.toHaveBeenCalled();
+    });
+
+    it('debe reintentar la generación de slug si ocurre una colisión', async () => {
+      mockRepository.institutionExists.mockResolvedValue(true);
+      mockRepository.findBySlug
+        .mockResolvedValueOnce(new CampaignEntity({ slug: 'collision' }))
+        .mockResolvedValueOnce(null);
+
+      mockRepository.create.mockImplementation((data) =>
+        Promise.resolve(new CampaignEntity({ ...data })),
+      );
+
+      const result = await service.create(validDto);
+
+      expect(mockRepository.findBySlug).toHaveBeenCalledTimes(2);
+      expect(result.slug).toBeDefined();
+    });
+  });
+
+  describe('findById', () => {
+    it('debe retornar la campaña si existe', async () => {
+      const mockCampaign = new CampaignEntity({
+        id: 'c8a48c74-5fe6-4fbb-a862-f35601bed580',
+        patientName: 'Test Patient',
+      });
+      mockRepository.findById.mockResolvedValue(mockCampaign);
+
+      const result = await service.findById(
+        'c8a48c74-5fe6-4fbb-a862-f35601bed580',
+      );
+      expect(result).toBe(mockCampaign);
+    });
+
+    it('debe lanzar NotFoundException si no existe', async () => {
+      mockRepository.findById.mockResolvedValue(null);
+
+      await expect(service.findById('non-existent-id')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
+
+  describe('findBySlug', () => {
+    it('debe retornar la campaña si el slug existe', async () => {
+      const mockCampaign = new CampaignEntity({
+        slug: 'donantes-test-123456',
+        patientName: 'Test Patient',
+      });
+      mockRepository.findBySlug.mockResolvedValue(mockCampaign);
+
+      const result = await service.findBySlug('donantes-test-123456');
+      expect(result).toBe(mockCampaign);
+    });
+
+    it('debe lanzar NotFoundException si el slug no existe', async () => {
+      mockRepository.findBySlug.mockResolvedValue(null);
+
+      await expect(service.findBySlug('non-existent-slug')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
+
+  describe('uploadAssets (US-03, US-04, US-07)', () => {
+    const campaignId = 'c8a48c74-5fe6-4fbb-a862-f35601bed580';
+    const validEditToken = 'secret-token-123';
+    const samplePngBase64 =
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+
+    const validUploadDto: UploadCampaignAssetsDto = {
+      editToken: validEditToken,
+      assets: [
+        {
+          format: 'SQUARE_1_1',
+          imageBase64: samplePngBase64,
+          width: 1080,
+          height: 1080,
+        },
+      ],
+    };
+
+    it('debe subir los assets a Storage, guardarlos en BD, activar la campaña y registrar en download_log', async () => {
+      const mockCampaign = new CampaignEntity({
+        id: campaignId,
+        editToken: validEditToken,
+        patientName: 'Juan Carlos',
+        status: 'DRAFT',
+      });
+
+      mockRepository.findById.mockResolvedValue(mockCampaign);
+      mockAssetRepository.findByCampaignAndFormat.mockResolvedValue(null);
+      mockStorageService.uploadFile.mockResolvedValue(
+        'https://storage.supabase.co/campaign-assets/c8a48c74/square_1_1.png',
+      );
+      mockAssetRepository.save.mockResolvedValue(
+        new CampaignAssetEntity({
+          id: 'asset-uuid-1',
+          campaignId,
+          format: 'SQUARE_1_1',
+          imageUrl:
+            'https://storage.supabase.co/campaign-assets/c8a48c74/square_1_1.png',
+          width: 1080,
+          height: 1080,
+          createdAt: new Date(),
+        }),
+      );
+      mockRepository.updateStatus.mockResolvedValue(
+        new CampaignEntity({
+          id: campaignId,
+          editToken: validEditToken,
+          patientName: 'Juan Carlos',
+          status: 'ACTIVE',
+        }),
+      );
+      mockDownloadLogRepository.create.mockResolvedValue({ id: 'dl-1' });
+
+      const results = await service.uploadAssets(
+        campaignId,
+        validUploadDto,
+        '192.168.1.100',
+      );
+
+      expect(mockRepository.findById).toHaveBeenCalledWith(campaignId);
+      expect(mockStorageService.uploadFile).toHaveBeenCalledWith(
+        `${campaignId}/square_1_1.png`,
+        expect.any(Buffer),
+        'image/png',
+      );
+      expect(mockAssetRepository.save).toHaveBeenCalled();
+      expect(mockRepository.updateStatus).toHaveBeenCalledWith(
+        campaignId,
+        'ACTIVE',
+      );
+      expect(mockDownloadLogRepository.create).toHaveBeenCalledWith({
+        campaignId,
+        downloadType: 'IMAGE_1_1',
+        ipHash: expect.any(String),
+      });
+      expect(results).toHaveLength(1);
+      expect(results[0].imageUrl).toContain('square_1_1.png');
+    });
+
+    it('debe detectar si la imagen es exactamente la misma guardada en previsualización y evitar re-subir', async () => {
+      const mockCampaign = new CampaignEntity({
+        id: campaignId,
+        editToken: validEditToken,
+        status: 'ACTIVE',
+      });
+
+      const existingAsset = new CampaignAssetEntity({
+        id: 'asset-existing-1',
+        campaignId,
+        format: 'SQUARE_1_1',
+        imageUrl: 'https://storage/existing.png',
+        width: 1080,
+        height: 1080,
+        createdAt: new Date(),
+      });
+
+      mockRepository.findById.mockResolvedValue(mockCampaign);
+      mockAssetRepository.findByCampaignAndFormat.mockResolvedValue(
+        existingAsset,
+      );
+      mockStorageService.isSameFile.mockResolvedValue(true); // Misma imagen
+      mockDownloadLogRepository.create.mockResolvedValue({ id: 'dl-1' });
+
+      const results = await service.uploadAssets(campaignId, validUploadDto);
+
+      // No debe llamar a uploadFile ni a save porque es idéntica
+      expect(mockStorageService.uploadFile).not.toHaveBeenCalled();
+      expect(mockAssetRepository.save).not.toHaveBeenCalled();
+      expect(results[0].id).toBe('asset-existing-1');
+      expect(mockDownloadLogRepository.create).toHaveBeenCalledWith({
+        campaignId,
+        downloadType: 'IMAGE_1_1',
+        ipHash: null,
+      });
+    });
+
+    it('debe soportar confirmar y registrar descarga sin enviar Base64 si el asset ya existía en previsualización', async () => {
+      const mockCampaign = new CampaignEntity({
+        id: campaignId,
+        editToken: validEditToken,
+        status: 'DRAFT',
+      });
+
+      const existingAsset = new CampaignAssetEntity({
+        id: 'asset-preview-1',
+        campaignId,
+        format: 'SQUARE_1_1',
+        imageUrl: 'https://storage/preview.png',
+        width: 1080,
+        height: 1080,
+        createdAt: new Date(),
+      });
+
+      mockRepository.findById.mockResolvedValue(mockCampaign);
+      mockAssetRepository.findByCampaignAndFormat.mockResolvedValue(
+        existingAsset,
+      );
+
+      const results = await service.uploadAssets(campaignId, {
+        editToken: validEditToken,
+        assets: [{ format: 'SQUARE_1_1' }],
+      });
+
+      expect(results).toHaveLength(1);
+      expect(results[0].imageUrl).toBe('https://storage/preview.png');
+      expect(mockDownloadLogRepository.create).toHaveBeenCalledWith({
+        campaignId,
+        downloadType: 'IMAGE_1_1',
+        ipHash: null,
+      });
+    });
+
+    it('debe lanzar BadRequestException si no se envía Base64 y el asset no existía en previsualización', async () => {
+      const mockCampaign = new CampaignEntity({
+        id: campaignId,
+        editToken: validEditToken,
+        status: 'DRAFT',
+      });
+
+      mockRepository.findById.mockResolvedValue(mockCampaign);
+      mockAssetRepository.findByCampaignAndFormat.mockResolvedValue(null);
+
+      await expect(
+        service.uploadAssets(campaignId, {
+          editToken: validEditToken,
+          assets: [{ format: 'SQUARE_1_1' }],
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('debe soportar una colección con múltiples placas y registrar cada una en download_log', async () => {
+      const mockCampaign = new CampaignEntity({
+        id: campaignId,
+        editToken: validEditToken,
+        status: 'ACTIVE',
+      });
+
+      mockRepository.findById.mockResolvedValue(mockCampaign);
+      mockAssetRepository.findByCampaignAndFormat.mockResolvedValue(null);
+      mockStorageService.uploadFile.mockResolvedValue(
+        'https://storage/test.png',
+      );
+      mockAssetRepository.save.mockImplementation((data) =>
+        Promise.resolve(
+          new CampaignAssetEntity({
+            id: 'uuid',
+            campaignId: data.campaignId,
+            format: data.format,
+            imageUrl: data.imageUrl,
+            width: data.width,
+            height: data.height,
+            createdAt: new Date(),
+          }),
+        ),
+      );
+
+      const results = await service.uploadAssets(campaignId, {
+        editToken: validEditToken,
+        assets: [
+          { format: 'SQUARE_1_1', imageBase64: samplePngBase64 },
+          { format: 'STORY_9_16', imageBase64: samplePngBase64 },
+        ],
+      });
+
+      expect(results).toHaveLength(2);
+      expect(mockDownloadLogRepository.create).toHaveBeenCalledTimes(2);
+      expect(mockDownloadLogRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ downloadType: 'IMAGE_1_1' }),
+      );
+      expect(mockDownloadLogRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ downloadType: 'IMAGE_9_16' }),
+      );
+    });
+
+    it('debe registrar un único evento de tipo ZIP_BUNDLE en download_log si se provee downloadType: "ZIP_BUNDLE" (US-08)', async () => {
+      const mockCampaign = new CampaignEntity({
+        id: campaignId,
+        editToken: validEditToken,
+        status: 'DRAFT',
+      });
+
+      mockRepository.findById.mockResolvedValue(mockCampaign);
+      mockAssetRepository.findByCampaignAndFormat.mockResolvedValue(null);
+      mockStorageService.uploadFile.mockResolvedValue(
+        'https://storage/asset.png',
+      );
+      mockAssetRepository.save.mockImplementation((d) =>
+        Promise.resolve(new CampaignAssetEntity(d)),
+      );
+      mockDownloadLogRepository.create.mockResolvedValue({ id: 'dl-1' });
+
+      await service.uploadAssets(
+        campaignId,
+        {
+          editToken: validEditToken,
+          downloadType: 'ZIP_BUNDLE',
+          assets: [
+            { format: 'SQUARE_1_1', imageBase64: samplePngBase64 },
+            { format: 'STORY_9_16', imageBase64: samplePngBase64 },
+          ],
+        },
+        '192.168.1.50',
+      );
+
+      expect(mockDownloadLogRepository.create).toHaveBeenCalledTimes(1);
+      expect(mockDownloadLogRepository.create).toHaveBeenCalledWith({
+        campaignId,
+        downloadType: 'ZIP_BUNDLE',
+        ipHash: expect.any(String),
+      });
+    });
+
+    it('debe lanzar NotFoundException si la campaña no existe', async () => {
+      mockRepository.findById.mockResolvedValue(null);
+
+      await expect(
+        service.uploadAssets('non-existent-campaign', validUploadDto),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('debe lanzar ForbiddenException si el editToken no coincide', async () => {
+      const mockCampaign = new CampaignEntity({
+        id: campaignId,
+        editToken: 'other-token',
+      });
+      mockRepository.findById.mockResolvedValue(mockCampaign);
+
+      await expect(
+        service.uploadAssets(campaignId, {
+          editToken: 'wrong-token',
+          assets: validUploadDto.assets,
+        }),
+      ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  describe('update (US-09)', () => {
+    const campaignId = 'c8a48c74-5fe6-4fbb-a862-f35601bed580';
+    const validEditToken = 'secret-token-123';
+
+    it('debe actualizar los datos y regenerar el slug cuando el nombre del paciente cambia', async () => {
+      const existingCampaign = new CampaignEntity({
+        id: campaignId,
+        slug: 'donantes-esteban-quispe-123456',
+        editToken: validEditToken,
+        institutionId: mockInstitutionId,
+        patientName: 'Esteban Quispe',
+        bloodType: '0+',
+        status: 'DRAFT',
+      });
+
+      mockRepository.findById.mockResolvedValue(existingCampaign);
+      mockRepository.findBySlug.mockResolvedValue(null);
+      mockRepository.update.mockImplementation((_id, data) =>
+        Promise.resolve(
+          new CampaignEntity({
+            id: campaignId,
+            slug: data.slug,
+            editToken: validEditToken,
+            patientName: data.patientName,
+            bloodType: data.bloodType ?? existingCampaign.bloodType,
+            status: 'DRAFT',
+          }),
+        ),
+      );
+
+      const result = await service.update(campaignId, {
+        editToken: validEditToken,
+        patientName: 'Esteban Carlos Quispe',
+        bloodType: 'A+',
+      });
+
+      expect(mockRepository.findById).toHaveBeenCalledWith(campaignId);
+      expect(mockRepository.update).toHaveBeenCalled();
+      expect(result.patientName).toBe('Esteban Carlos Quispe');
+      expect(result.bloodType).toBe('A+');
+      expect(result.slug).toMatch(
+        /^donantes-esteban-carlos-quispe-[a-f0-9]{6}$/,
+      );
+    });
+
+    it('debe mantener el slug actual si el nombre del paciente no cambió', async () => {
+      const existingCampaign = new CampaignEntity({
+        id: campaignId,
+        slug: 'donantes-esteban-quispe-123456',
+        editToken: validEditToken,
+        institutionId: mockInstitutionId,
+        patientName: 'Esteban Quispe',
+        bloodType: '0+',
+        status: 'DRAFT',
+      });
+
+      mockRepository.findById.mockResolvedValue(existingCampaign);
+      mockRepository.update.mockImplementation((_id, data) =>
+        Promise.resolve(
+          new CampaignEntity({
+            id: campaignId,
+            slug: data.slug ?? existingCampaign.slug,
+            editToken: validEditToken,
+            patientName: existingCampaign.patientName,
+            bloodType: data.bloodType ?? existingCampaign.bloodType,
+            status: 'DRAFT',
+          }),
+        ),
+      );
+
+      const result = await service.update(campaignId, {
+        editToken: validEditToken,
+        bloodType: 'B+',
+      });
+
+      expect(mockRepository.update).toHaveBeenCalledWith(
+        campaignId,
+        expect.objectContaining({
+          slug: undefined,
+          bloodType: 'B+',
+        }),
+      );
+      expect(result.slug).toBe('donantes-esteban-quispe-123456');
+    });
+
+    it('debe lanzar ForbiddenException si el editToken es incorrecto', async () => {
+      const existingCampaign = new CampaignEntity({
+        id: campaignId,
+        editToken: validEditToken,
+        status: 'DRAFT',
+      });
+      mockRepository.findById.mockResolvedValue(existingCampaign);
+
+      await expect(
+        service.update(campaignId, {
+          editToken: 'token-incorrecto',
+          bloodType: 'AB+',
+        }),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('debe lanzar BadRequestException si la campaña se encuentra cancelada', async () => {
+      const existingCampaign = new CampaignEntity({
+        id: campaignId,
+        editToken: validEditToken,
+        status: 'CANCELLED',
+      });
+      mockRepository.findById.mockResolvedValue(existingCampaign);
+
+      await expect(
+        service.update(campaignId, {
+          editToken: validEditToken,
+          bloodType: 'AB+',
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('debe permitir borrar datos opcionales enviando null (deadline, targetDonors, observations)', async () => {
+      const existingCampaign = new CampaignEntity({
+        id: campaignId,
+        slug: 'donantes-esteban-quispe-123456',
+        editToken: validEditToken,
+        patientName: 'Esteban Quispe',
+        bloodType: 'A+',
+        targetDonors: 10,
+        deadline: new Date('2026-12-31'),
+        observations: 'Observaciones iniciales',
+        status: 'DRAFT',
+      });
+
+      mockRepository.findById.mockResolvedValue(existingCampaign);
+      mockRepository.update.mockResolvedValue(
+        new CampaignEntity({
+          id: existingCampaign.id,
+          slug: existingCampaign.slug,
+          editToken: existingCampaign.editToken,
+          patientName: existingCampaign.patientName,
+          bloodType: existingCampaign.bloodType,
+          status: existingCampaign.status,
+          targetDonors: null,
+          deadline: null,
+          observations: null,
+        }),
+      );
+
+      const result = await service.update(campaignId, {
+        editToken: validEditToken,
+        targetDonors: null,
+        deadline: null,
+        observations: null,
+      });
+
+      expect(mockRepository.update).toHaveBeenCalledWith(
+        campaignId,
+        expect.objectContaining({
+          targetDonors: null,
+          deadline: null,
+          observations: null,
+        }),
+      );
+      expect(result.targetDonors).toBeNull();
+      expect(result.deadline).toBeNull();
+      expect(result.observations).toBeNull();
+    });
+
+    it('debe actualizar el estado a COMPLETED y el contador de currentDonors cuando se alcanza la meta (US-16)', async () => {
+      const existingCampaign = new CampaignEntity({
+        id: campaignId,
+        slug: 'donantes-esteban-quispe-123456',
+        editToken: validEditToken,
+        institutionId: mockInstitutionId,
+        patientName: 'Esteban Quispe',
+        bloodType: '0+',
+        targetDonors: 10,
+        currentDonors: 5,
+        status: 'ACTIVE',
+      });
+
+      mockRepository.findById.mockResolvedValue(existingCampaign);
+      mockRepository.update.mockImplementation((_id, data) =>
+        Promise.resolve(
+          new CampaignEntity({
+            id: existingCampaign.id,
+            slug: existingCampaign.slug,
+            editToken: existingCampaign.editToken,
+            patientName: existingCampaign.patientName,
+            bloodType: existingCampaign.bloodType,
+            targetDonors: existingCampaign.targetDonors,
+            currentDonors: data.currentDonors ?? existingCampaign.currentDonors,
+            status: data.status ?? existingCampaign.status,
+          }),
+        ),
+      );
+
+      const result = await service.update(campaignId, {
+        editToken: validEditToken,
+        currentDonors: 10,
+        status: 'COMPLETED',
+      });
+
+      expect(mockRepository.update).toHaveBeenCalledWith(
+        campaignId,
+        expect.objectContaining({
+          currentDonors: 10,
+          status: 'COMPLETED',
+        }),
+      );
+      expect(result.currentDonors).toBe(10);
+      expect(result.status).toBe('COMPLETED');
+    });
+  });
+
+  describe('verifyEditToken (US-09)', () => {
+    const campaignId = 'c8a48c74-5fe6-4fbb-a862-f35601bed580';
+    const validEditToken = 'secret-token-123';
+
+    it('debe retornar la campaña si el token es válido', async () => {
+      const existingCampaign = new CampaignEntity({
+        id: campaignId,
+        editToken: validEditToken,
+        patientName: 'Juan Pérez',
+      });
+      mockRepository.findById.mockResolvedValue(existingCampaign);
+
+      const result = await service.verifyEditToken(campaignId, validEditToken);
+      expect(result).toBe(existingCampaign);
+    });
+
+    it('debe lanzar ForbiddenException si el token es inválido', async () => {
+      const existingCampaign = new CampaignEntity({
+        id: campaignId,
+        editToken: validEditToken,
+      });
+      mockRepository.findById.mockResolvedValue(existingCampaign);
+
+      await expect(
+        service.verifyEditToken(campaignId, 'token-erroneo'),
+      ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  describe('getRequirements (US-12)', () => {
+    it('debe obtener los requisitos de la campaña', async () => {
+      const campaign = new CampaignEntity({
+        id: 'c8a48c74-5fe6-4fbb-a862-f35601bed580',
+        institutionId: mockInstitutionId,
+      });
+      mockRepository.findById.mockResolvedValue(campaign);
+      mockRepository.findRequirements.mockResolvedValue([
+        { id: 'req-1', title: 'Edad' },
+      ]);
+
+      const result = await service.getRequirements(
+        campaign.id,
+        'GENERAL',
+        true,
+      );
+      expect(result).toHaveLength(1);
+      expect((result[0] as any).title).toBe('Edad');
+      expect(mockRepository.findRequirements).toHaveBeenCalledWith(
+        mockInstitutionId,
+        'GENERAL',
+        true,
+      );
+    });
+  });
+
+  describe('getFaqs (US-13)', () => {
+    it('debe obtener las FAQs de la campaña', async () => {
+      const campaign = new CampaignEntity({
+        id: 'c8a48c74-5fe6-4fbb-a862-f35601bed580',
+        institutionId: mockInstitutionId,
+      });
+      mockRepository.findById.mockResolvedValue(campaign);
+      mockRepository.findFaqs.mockResolvedValue([
+        { id: 'faq-1', question: '¿Puedo donar?' },
+      ]);
+
+      const result = await service.getFaqs(campaign.id, 'TATUAJES');
+      expect(result).toHaveLength(1);
+      expect((result[0] as any).question).toBe('¿Puedo donar?');
+      expect(mockRepository.findFaqs).toHaveBeenCalledWith(
+        mockInstitutionId,
+        'TATUAJES',
+      );
+    });
+  });
+
+  describe('findDashboardCampaigns (US-20)', () => {
+    it('debe validar existencia de institución si se provee, expirar vencidas y delegar al repositorio', async () => {
+      mockRepository.institutionExists.mockResolvedValue(true);
+      mockRepository.expireOverdueCampaigns.mockResolvedValue(0);
+      mockRepository.findDashboardCampaigns.mockResolvedValue([
+        { id: 'camp-1', patientName: 'Lucía' },
+      ]);
+      mockRepository.getDashboardSummary.mockResolvedValue({
+        totalCampanias: 1,
+        activas: 1,
+        totalVisitas: 10,
+        donantesConseguidos: 2,
+      });
+
+      const result = await service.findDashboardCampaigns({
+        institutionId: mockInstitutionId,
+        status: 'active',
+      });
+
+      expect(mockRepository.institutionExists).toHaveBeenCalledWith(
+        mockInstitutionId,
+      );
+      expect(mockRepository.expireOverdueCampaigns).toHaveBeenCalledTimes(1);
+      expect(mockRepository.findDashboardCampaigns).toHaveBeenCalledWith({
+        institutionId: mockInstitutionId,
+        status: 'ACTIVE',
+      });
+      expect(result.campaigns).toHaveLength(1);
+      expect(result.summary.totalCampanias).toBe(1);
+    });
+
+    it('debe lanzar InstitutionNotFoundException si la institución provista no existe', async () => {
+      mockRepository.institutionExists.mockResolvedValue(false);
+
+      await expect(
+        service.findDashboardCampaigns({
+          institutionId: 'non-existent-inst',
+        }),
+      ).rejects.toThrow();
+    });
+  });
+
+  describe('adminFindOne & adminUpdate (US-16, US-20)', () => {
+    const campaignId = 'c8a48c74-5fe6-4fbb-a862-f35601bed580';
+
+    it('adminFindOne debe retornar la campaña si pertenece a la institución', async () => {
+      mockRepository.institutionExists.mockResolvedValue(true);
+      const mockCampaign = new CampaignEntity({
+        id: campaignId,
+        institutionId: mockInstitutionId,
+        patientName: 'Pedro Gómez',
+        status: 'ACTIVE',
+      });
+      mockRepository.findById.mockResolvedValue(mockCampaign);
+
+      const result = await service.adminFindOne(mockInstitutionId, campaignId);
+      expect(result).toBe(mockCampaign);
+    });
+
+    it('adminFindOne debe lanzar ForbiddenException si la campaña pertenece a otra institución', async () => {
+      mockRepository.institutionExists.mockResolvedValue(true);
+      const mockCampaign = new CampaignEntity({
+        id: campaignId,
+        institutionId: 'other-inst-id',
+        patientName: 'Pedro Gómez',
+      });
+      mockRepository.findById.mockResolvedValue(mockCampaign);
+
+      await expect(
+        service.adminFindOne(mockInstitutionId, campaignId),
+      ).rejects.toThrow(
+        'La campaña no pertenece a la institución especificada.',
+      );
+    });
+
+    it('adminUpdate debe permitir cerrar la campaña (status: COMPLETED) y actualizar donantes', async () => {
+      mockRepository.institutionExists.mockResolvedValue(true);
+      const mockCampaign = new CampaignEntity({
+        id: campaignId,
+        institutionId: mockInstitutionId,
+        patientName: 'Pedro Gómez',
+        targetDonors: 10,
+        currentDonors: 4,
+        status: 'ACTIVE',
+      });
+      mockRepository.findById.mockResolvedValue(mockCampaign);
+      mockRepository.update.mockResolvedValue(
+        new CampaignEntity({
+          id: mockCampaign.id,
+          institutionId: mockCampaign.institutionId,
+          patientName: mockCampaign.patientName,
+          targetDonors: mockCampaign.targetDonors,
+          currentDonors: 10,
+          status: 'COMPLETED',
+        }),
+      );
+
+      const result = await service.adminUpdate(mockInstitutionId, campaignId, {
+        currentDonors: 10,
+        status: 'COMPLETED',
+      });
+
+      expect(mockRepository.update).toHaveBeenCalledWith(
+        campaignId,
+        expect.objectContaining({
+          currentDonors: 10,
+          status: 'COMPLETED',
+        }),
+      );
+      expect(result.status).toBe('COMPLETED');
+      expect(result.currentDonors).toBe(10);
+    });
+
+    it('adminUpdate debe soportar incremento relativo de donantes (incrementDonors)', async () => {
+      mockRepository.institutionExists.mockResolvedValue(true);
+      const mockCampaign = new CampaignEntity({
+        id: campaignId,
+        institutionId: mockInstitutionId,
+        patientName: 'Pedro Gómez',
+        targetDonors: 10,
+        currentDonors: 4,
+        status: 'ACTIVE',
+      });
+      mockRepository.findById.mockResolvedValue(mockCampaign);
+      mockRepository.atomicUpdateDonors.mockResolvedValue(5);
+      mockRepository.update.mockResolvedValue(
+        new CampaignEntity({
+          id: mockCampaign.id,
+          institutionId: mockCampaign.institutionId,
+          patientName: mockCampaign.patientName,
+          targetDonors: mockCampaign.targetDonors,
+          currentDonors: 5,
+          status: 'ACTIVE',
+        }),
+      );
+
+      const result = await service.adminUpdate(mockInstitutionId, campaignId, {
+        incrementDonors: 1,
+      });
+
+      expect(mockRepository.atomicUpdateDonors).toHaveBeenCalledWith(
+        campaignId,
+        mockInstitutionId,
+        1,
+      );
+      expect(mockRepository.update).toHaveBeenCalledWith(
+        campaignId,
+        expect.objectContaining({
+          currentDonors: 5,
+        }),
+      );
+      expect(result.currentDonors).toBe(5);
+    });
+
+    it('adminUpdate debe soportar decremento seguro con incrementDonors negativo o decrementDonors', async () => {
+      mockRepository.institutionExists.mockResolvedValue(true);
+      const mockCampaign = new CampaignEntity({
+        id: campaignId,
+        institutionId: mockInstitutionId,
+        patientName: 'Pedro Gómez',
+        targetDonors: 10,
+        currentDonors: 4,
+        status: 'ACTIVE',
+      });
+      mockRepository.findById.mockResolvedValue(mockCampaign);
+      mockRepository.atomicUpdateDonors.mockResolvedValue(3);
+      mockRepository.update.mockImplementation((_id, data) =>
+        Promise.resolve(
+          new CampaignEntity({
+            id: mockCampaign.id,
+            institutionId: mockCampaign.institutionId,
+            patientName: mockCampaign.patientName,
+            targetDonors: mockCampaign.targetDonors,
+            currentDonors: data.currentDonors,
+            status: data.status ?? mockCampaign.status,
+          }),
+        ),
+      );
+
+      const result = await service.adminUpdate(mockInstitutionId, campaignId, {
+        incrementDonors: -1,
+      });
+
+      expect(mockRepository.atomicUpdateDonors).toHaveBeenCalledWith(
+        campaignId,
+        mockInstitutionId,
+        -1,
+      );
+      expect(result.currentDonors).toBe(3);
+    });
+
+    it('adminUpdate debe reactivar automáticamente a ACTIVE una campaña COMPLETED si se descuentan donantes por debajo de la meta', async () => {
+      mockRepository.institutionExists.mockResolvedValue(true);
+      const mockCampaign = new CampaignEntity({
+        id: campaignId,
+        institutionId: mockInstitutionId,
+        patientName: 'Pedro Gómez',
+        targetDonors: 10,
+        currentDonors: 5,
+        status: 'COMPLETED',
+      });
+      mockRepository.findById.mockResolvedValue(mockCampaign);
+      mockRepository.atomicUpdateDonors.mockResolvedValue(4);
+      mockRepository.update.mockImplementation((_id, data) =>
+        Promise.resolve(
+          new CampaignEntity({
+            id: mockCampaign.id,
+            institutionId: mockCampaign.institutionId,
+            patientName: mockCampaign.patientName,
+            targetDonors: mockCampaign.targetDonors,
+            currentDonors: data.currentDonors,
+            status: data.status,
+          }),
+        ),
+      );
+
+      const result = await service.adminUpdate(mockInstitutionId, campaignId, {
+        decrementDonors: 1,
+      });
+
+      expect(mockRepository.atomicUpdateDonors).toHaveBeenCalledWith(
+        campaignId,
+        mockInstitutionId,
+        -1,
+      );
+      expect(mockRepository.update).toHaveBeenCalledWith(
+        campaignId,
+        expect.objectContaining({
+          currentDonors: 4,
+          status: 'ACTIVE',
+        }),
+      );
+      expect(result.status).toBe('ACTIVE');
+      expect(result.currentDonors).toBe(4);
+    });
+
+    it('Escenario 1: si no hay target no se cerrará la campaña automáticamente al sumar donantes', async () => {
+      mockRepository.institutionExists.mockResolvedValue(true);
+      const mockCampaign = new CampaignEntity({
+        id: campaignId,
+        institutionId: mockInstitutionId,
+        patientName: 'Pedro Gómez',
+        targetDonors: null,
+        currentDonors: 3,
+        status: 'ACTIVE',
+      });
+      mockRepository.findById.mockResolvedValue(mockCampaign);
+      mockRepository.update.mockImplementation((_id, data) =>
+        Promise.resolve(
+          new CampaignEntity({
+            id: mockCampaign.id,
+            institutionId: mockCampaign.institutionId,
+            patientName: mockCampaign.patientName,
+            targetDonors: null,
+            currentDonors: data.currentDonors,
+            status: data.status ?? mockCampaign.status,
+          }),
+        ),
+      );
+
+      const result = await service.adminUpdate(mockInstitutionId, campaignId, {
+        currentDonors: 15,
+      });
+
+      expect(mockRepository.update).toHaveBeenCalledWith(
+        campaignId,
+        expect.objectContaining({
+          currentDonors: 15,
+          status: undefined,
+        }),
+      );
+      expect(result.status).toBe('ACTIVE');
+      expect(result.currentDonors).toBe(15);
+    });
+
+    it('Escenario 2: si hay target y se alcanza la misma cantidad se cambia a COMPLETED automáticamente', async () => {
+      mockRepository.institutionExists.mockResolvedValue(true);
+      const mockCampaign = new CampaignEntity({
+        id: campaignId,
+        institutionId: mockInstitutionId,
+        patientName: 'Pedro Gómez',
+        targetDonors: 8,
+        currentDonors: 5,
+        status: 'ACTIVE',
+      });
+      mockRepository.findById.mockResolvedValue(mockCampaign);
+      mockRepository.update.mockImplementation((_id, data) =>
+        Promise.resolve(
+          new CampaignEntity({
+            id: mockCampaign.id,
+            institutionId: mockCampaign.institutionId,
+            patientName: mockCampaign.patientName,
+            targetDonors: mockCampaign.targetDonors,
+            currentDonors: data.currentDonors,
+            status: data.status ?? mockCampaign.status,
+          }),
+        ),
+      );
+
+      const result = await service.adminUpdate(mockInstitutionId, campaignId, {
+        currentDonors: 8,
+      });
+
+      expect(mockRepository.update).toHaveBeenCalledWith(
+        campaignId,
+        expect.objectContaining({
+          currentDonors: 8,
+          status: 'COMPLETED',
+        }),
+      );
+      expect(result.status).toBe('COMPLETED');
+      expect(result.currentDonors).toBe(8);
+      expect(result.targetDonors).toBe(8);
+    });
+
+    it('debe rechazar el decremento de donantes si la campaña está en COMPLETED y alcanzó su meta (incrementDonors: -1)', async () => {
+      mockRepository.institutionExists.mockResolvedValue(true);
+      const mockCampaign = new CampaignEntity({
+        id: campaignId,
+        institutionId: mockInstitutionId,
+        patientName: 'Sofía Martínez',
+        targetDonors: 10,
+        currentDonors: 10,
+        status: 'COMPLETED',
+      });
+      mockRepository.findById.mockResolvedValue(mockCampaign);
+
+      await expect(
+        service.adminUpdate(mockInstitutionId, campaignId, {
+          incrementDonors: -1,
+        }),
+      ).rejects.toThrow(
+        'No está permitido restar donantes a una campaña completada que alcanzó su meta. Debe reabrir la campaña primero.',
+      );
+    });
+
+    it('debe rechazar el decremento de donantes si la campaña está en COMPLETED y alcanzó su meta (currentDonors: 9)', async () => {
+      mockRepository.institutionExists.mockResolvedValue(true);
+      const mockCampaign = new CampaignEntity({
+        id: campaignId,
+        institutionId: mockInstitutionId,
+        patientName: 'Sofía Martínez',
+        targetDonors: 10,
+        currentDonors: 10,
+        status: 'COMPLETED',
+      });
+      mockRepository.findById.mockResolvedValue(mockCampaign);
+
+      await expect(
+        service.adminUpdate(mockInstitutionId, campaignId, {
+          currentDonors: 9,
+        }),
+      ).rejects.toThrow(
+        'No está permitido restar donantes a una campaña completada que alcanzó su meta. Debe reabrir la campaña primero.',
+      );
+    });
+
+    it('debe rechazar la modificación directa de currentDonors si la campaña no está activa ni en reapertura', async () => {
+      mockRepository.institutionExists.mockResolvedValue(true);
+      const mockCampaign = new CampaignEntity({
+        id: campaignId,
+        institutionId: mockInstitutionId,
+        patientName: 'Sofía Martínez',
+        targetDonors: 20,
+        currentDonors: 5,
+        status: 'CANCELLED',
+      });
+      mockRepository.findById.mockResolvedValue(mockCampaign);
+
+      await expect(
+        service.adminUpdate(mockInstitutionId, campaignId, {
+          currentDonors: 6,
+        }),
+      ).rejects.toThrow(
+        'Solo se puede modificar la cantidad de donantes en campañas que se encuentren activas.',
+      );
+    });
+
+    it('debe permitir reabrir a ACTIVE una campaña completada si se provee una nueva meta mayor', async () => {
+      mockRepository.institutionExists.mockResolvedValue(true);
+      const mockCampaign = new CampaignEntity({
+        id: campaignId,
+        institutionId: mockInstitutionId,
+        patientName: 'Sofía Martínez',
+        targetDonors: 10,
+        currentDonors: 10,
+        status: 'COMPLETED',
+      });
+      mockRepository.findById.mockResolvedValue(mockCampaign);
+      mockRepository.update.mockImplementation((_id, data) =>
+        Promise.resolve(
+          new CampaignEntity({
+            id: mockCampaign.id,
+            institutionId: mockCampaign.institutionId,
+            patientName: mockCampaign.patientName,
+            targetDonors: data.targetDonors ?? mockCampaign.targetDonors,
+            currentDonors: mockCampaign.currentDonors,
+            status: data.status ?? mockCampaign.status,
+          }),
+        ),
+      );
+
+      const result = await service.adminUpdate(mockInstitutionId, campaignId, {
+        status: 'ACTIVE',
+        deadline: '2026-12-01',
+        targetDonors: 15,
+      });
+
+      expect(mockRepository.update).toHaveBeenCalledWith(
+        campaignId,
+        expect.objectContaining({
+          status: 'ACTIVE',
+          targetDonors: 15,
+        }),
+      );
+      expect(result.status).toBe('ACTIVE');
+      expect(result.targetDonors).toBe(15);
+    });
+
+    it('debe permitir reabrir a ACTIVE una campaña completada si se remueve la meta (targetDonors: null)', async () => {
+      mockRepository.institutionExists.mockResolvedValue(true);
+      const mockCampaign = new CampaignEntity({
+        id: campaignId,
+        institutionId: mockInstitutionId,
+        patientName: 'Sofía Martínez',
+        targetDonors: 10,
+        currentDonors: 10,
+        status: 'COMPLETED',
+      });
+      mockRepository.findById.mockResolvedValue(mockCampaign);
+      mockRepository.update.mockImplementation((_id, data) =>
+        Promise.resolve(
+          new CampaignEntity({
+            id: mockCampaign.id,
+            institutionId: mockCampaign.institutionId,
+            patientName: mockCampaign.patientName,
+            targetDonors: data.targetDonors,
+            currentDonors: mockCampaign.currentDonors,
+            status: data.status ?? mockCampaign.status,
+          }),
+        ),
+      );
+
+      const result = await service.adminUpdate(mockInstitutionId, campaignId, {
+        status: 'ACTIVE',
+        deadline: '2026-12-01',
+        targetDonors: null,
+      });
+
+      expect(mockRepository.update).toHaveBeenCalledWith(
+        campaignId,
+        expect.objectContaining({
+          status: 'ACTIVE',
+          targetDonors: null,
+        }),
+      );
+      expect(result.status).toBe('ACTIVE');
+      expect(result.targetDonors).toBeNull();
+    });
+
+    it('debe rechazar la reapertura si la nueva meta es menor o igual a los donantes ya conseguidos', async () => {
+      mockRepository.institutionExists.mockResolvedValue(true);
+      const mockCampaign = new CampaignEntity({
+        id: campaignId,
+        institutionId: mockInstitutionId,
+        patientName: 'Sofía Martínez',
+        targetDonors: 10,
+        currentDonors: 10,
+        status: 'COMPLETED',
+      });
+      mockRepository.findById.mockResolvedValue(mockCampaign);
+
+      await expect(
+        service.adminUpdate(mockInstitutionId, campaignId, {
+          status: 'ACTIVE',
+          deadline: '2026-12-01',
+          targetDonors: 10,
+        }),
+      ).rejects.toThrow(
+        'Para reabrir una campaña cuya meta fue alcanzada, debe ingresar una nueva meta de donantes mayor a los donantes ya conseguidos (10) o dejarla sin límite fijado (null).',
+      );
+    });
+
+    it('debe actualizar donantes conseguidos en campañas activas y autocompletar si alcanza la meta', async () => {
+      mockRepository.institutionExists.mockResolvedValue(true);
+      const mockCampaign = new CampaignEntity({
+        id: campaignId,
+        institutionId: mockInstitutionId,
+        patientName: 'Sofía Martínez',
+        targetDonors: 12,
+        currentDonors: 5,
+        status: 'ACTIVE',
+      });
+      mockRepository.findById.mockResolvedValue(mockCampaign);
+      mockRepository.update.mockImplementation((_id, data) =>
+        Promise.resolve(
+          new CampaignEntity({
+            id: mockCampaign.id,
+            institutionId: mockCampaign.institutionId,
+            patientName: mockCampaign.patientName,
+            targetDonors: mockCampaign.targetDonors,
+            currentDonors: data.currentDonors,
+            status: data.status ?? mockCampaign.status,
+          }),
+        ),
+      );
+
+      const result = await service.adminUpdate(mockInstitutionId, campaignId, {
+        currentDonors: 12,
+      });
+
+      expect(mockRepository.update).toHaveBeenCalledWith(
+        campaignId,
+        expect.objectContaining({
+          currentDonors: 12,
+          status: 'COMPLETED',
+        }),
+      );
+      expect(result.status).toBe('COMPLETED');
+      expect(result.currentDonors).toBe(12);
+    });
+  });
+});

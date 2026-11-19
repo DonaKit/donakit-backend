@@ -1,0 +1,88 @@
+import type {
+  campaign_status,
+  institution as InstitutionRecord,
+} from '@prisma/client';
+import type {
+  CampaignDashboardItemDto,
+  CampaignDashboardSummaryDto,
+} from '../dto/campaign-dashboard-item.dto.js';
+import type { CampaignEntity } from '../entities/campaign.entity.js';
+import type { FaqItemEntity } from '../entities/faq-item.entity.js';
+import type { RequirementEntity } from '../entities/requirement.entity.js';
+
+export interface CreateCampaignData {
+  id?: string;
+  slug: string;
+  editToken: string;
+  institutionId: string;
+  patientName: string;
+  bloodType: string;
+  donationType?: string;
+  targetDonors?: number;
+  deadline?: Date;
+  observations?: string;
+  generatedCopy?: string;
+  status?: campaign_status;
+}
+
+export interface UpdateCampaignData {
+  patientName?: string;
+  slug?: string;
+  institutionId?: string;
+  bloodType?: string;
+  donationType?: string | null;
+  targetDonors?: number | null;
+  currentDonors?: number;
+  deadline?: Date | null;
+  observations?: string | null;
+  generatedCopy?: string | null;
+  status?: campaign_status;
+}
+
+export interface DashboardCampaignsRepositoryResult
+  extends Array<CampaignDashboardItemDto> {
+  campaigns: CampaignDashboardItemDto[];
+  pagination: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
+  summary?: {
+    totalCampanias: number;
+    activas: number;
+    totalVisitas: number;
+    donantesConseguidos: number;
+  };
+}
+
+export interface ICampaignRepository {
+  create(data: CreateCampaignData): Promise<CampaignEntity>;
+  findById(id: string): Promise<CampaignEntity | null>;
+  findBySlug(slug: string): Promise<CampaignEntity | null>;
+  institutionExists(institutionId: string): Promise<boolean>;
+  getInstitutionById(institutionId: string): Promise<InstitutionRecord | null>;
+  updateStatus(id: string, status: campaign_status): Promise<CampaignEntity>;
+  update(id: string, data: UpdateCampaignData): Promise<CampaignEntity>;
+  findRequirements(
+    institutionId?: string,
+    category?: string,
+    immediateOnly?: boolean,
+  ): Promise<RequirementEntity[]>;
+  findFaqs(institutionId?: string, category?: string): Promise<FaqItemEntity[]>;
+  findDashboardCampaigns(options: {
+    institutionId?: string;
+    status?: campaign_status | 'ALL';
+    page?: number;
+    limit?: number;
+  }): Promise<DashboardCampaignsRepositoryResult>;
+  expireOverdueCampaigns(): Promise<number>;
+  getDashboardSummary(
+    institutionId?: string,
+  ): Promise<CampaignDashboardSummaryDto>;
+  atomicUpdateDonors(
+    campaignId: string,
+    institutionId: string,
+    delta: number,
+  ): Promise<number>;
+}

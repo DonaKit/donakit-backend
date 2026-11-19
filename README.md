@@ -46,7 +46,7 @@ Para asegurar que todo el equipo trabaje en el mismo entorno y evitar inconsiste
 
 ---
 
-## ⚙️ Configuración del Entorno y Puertos
+## ⚙️ Configuración y Puertos del Servidor
 
 El servidor escucha por defecto en el puerto **3000** (`process.env.PORT ?? 3000`).
 
@@ -63,6 +63,25 @@ Si corres el backend junto con el frontend y deseas asignar un puerto específic
   ```bash
   PORT=3000 npm run start:dev
   ```
+
+Una vez iniciado, puedes verificar el estado de salud de la API y la conexión a la base de datos en:
+`http://localhost:3000/health`
+
+---
+
+## 🗄️ Diagnóstico de Conexión a la Base de Datos (Supabase)
+
+Para verificar en cualquier momento que la máquina se conecta a la base de datos, mide la latencia y ejecuta consultas de lectura/escritura mock:
+
+```bash
+npm run test:db
+```
+
+También puedes abrir la interfaz gráfica de exploración de datos en el navegador:
+```bash
+npx prisma studio
+```
+*(Disponible en: `http://localhost:5555`)*
 
 ---
 
@@ -110,6 +129,9 @@ npm run test:cov
 
 # Pruebas End-to-End (E2E)
 npm run test:e2e
+
+# Diagnóstico y prueba de conexión a la base de datos (Supabase)
+npm run test:db
 
 # Análisis de código con Oxlint
 npm run lint

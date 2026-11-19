@@ -1,0 +1,31 @@
+import type { campaign_status } from '@prisma/client';
+import type { CampaignAssetEntity } from '../entities/campaign-asset.entity.js';
+import type { InstitutionSummary } from '../entities/campaign.entity.js';
+import type { FaqItemEntity } from '../entities/faq-item.entity.js';
+import type { RequirementEntity } from '../entities/requirement.entity.js';
+
+export class PublicCampaignDto {
+  id: string;
+  institutionId: string;
+  patientName: string;
+  bloodType: string;
+  donationType: string | null;
+  targetDonors: number | null;
+  currentDonors: number | null;
+  deadline: Date | null;
+  observations: string | null;
+  generatedCopy: string | null;
+  status: campaign_status;
+  createdAt: Date;
+  updatedAt: Date;
+  institution?: InstitutionSummary;
+  assets?: CampaignAssetEntity[];
+  requirements?: RequirementEntity[];
+  faqs?: FaqItemEntity[];
+}
+
+export class PublicCampaignResponseDto {
+  success: boolean;
+  message: string;
+  data: PublicCampaignDto;
+}

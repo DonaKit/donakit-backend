@@ -1,0 +1,597 @@
+import { Injectable, Logger } from '@nestjs/common';
+import type { Prisma, campaign_status } from '@prisma/client';
+import { PrismaService } from '../../database/prisma.service.js';
+import type {
+  CampaignDashboardItemDto,
+  CampaignDashboardSummaryDto,
+} from '../dto/campaign-dashboard-item.dto.js';
+import { CampaignAssetEntity } from '../entities/campaign-asset.entity.js';
+import { CampaignEntity } from '../entities/campaign.entity.js';
+import { FaqItemEntity } from '../entities/faq-item.entity.js';
+import { RequirementEntity } from '../entities/requirement.entity.js';
+import type {
+  CreateCampaignData,
+  DashboardCampaignsRepositoryResult,
+  ICampaignRepository,
+  UpdateCampaignData,
+} from '../interfaces/campaign-repository.interface.js';
+
+@Injectable()
+export class CampaignRepository implements ICampaignRepository {
+  private readonly logger = new Logger(CampaignRepository.name);
+
+  private readonly institutionSelect = {
+    id: true,
+    name: true,
+    address: true,
+    city: true,
+    phone: true,
+    whatsapp: true,
+    email: true,
+    website_url: true,
+    requirements_url: true,
+    faq_url: true,
+    business_hours: true,
+    specific_requirements: true,
+    logo_url: true,
+  };
+
+  constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * Persiste una nueva campaña en la base de datos de Supabase.
+   */
+  async create(data: CreateCampaignData): Promise<CampaignEntity> {
+    const prismaCreateData: Prisma.campaignCreateInput = {
+      ...(data.id ? { id: data.id } : {}),
+      slug: data.slug,
+      edit_token: data.editToken,
+      patient_name: data.patientName,
+      blood_type: data.bloodType,
+      donation_type: data.donationType ?? 'Sangre entera',
+      target_donors: data.targetDonors ?? null,
+      deadline: data.deadline ?? null,
+      observations: data.observations ?? null,
+      generated_copy: data.generatedCopy ?? null,
+      status: data.status ?? 'ACTIVE',
+      institution: {
+        connect: { id: data.institutionId },
+      },
+    };
+
+    const record = await this.prisma.campaign.create({
+      data: prismaCreateData,
+      include: {
+        institution: {
+          select: this.institutionSelect,
+        },
+      },
+    });
+
+    this.logger.log(
+      `Campaña creada exitosamente con ID ${record.id} y slug '${record.slug}'`,
+    );
+    return this.mapToEntity(record);
+  }
+
+  /**
+   * Busca una campaña por su UUID con datos completos para la landing page.
+   */
+  async findById(id: string): Promise<CampaignEntity | null> {
+    const record = await this.prisma.campaign.findUnique({
+      where: { id },
+      include: {
+        institution: {
+          select: this.institutionSelect,
+        },
+        campaign_asset: true,
+      },
+    });
+
+    if (!record) {
+      return null;
+    }
+
+    const [requirements, faqs, totalVisits] = await Promise.all([
+      this.findRequirements(record.institution_id),
+      this.findFaqs(record.institution_id),
+      this.prisma.campaign_metric?.count
+        ? this.prisma.campaign_metric.count({
+            where: { campaign_id: record.id },
+          })
+        : Promise.resolve(0),
+    ]);
+
+    return this.mapToEntity(record, requirements, faqs, totalVisits);
+  }
+
+  /**
+   * Busca una campaña por su slug amigable con datos completos para la landing page.
+   */
+  async findBySlug(slug: string): Promise<CampaignEntity | null> {
+    const record = await this.prisma.campaign.findUnique({
+      where: { slug },
+      include: {
+        institution: {
+          select: this.institutionSelect,
+        },
+        campaign_asset: true,
+      },
+    });
+
+    if (!record) {
+      return null;
+    }
+
+    const [requirements, faqs, totalVisits] = await Promise.all([
+      this.findRequirements(record.institution_id),
+      this.findFaqs(record.institution_id),
+      this.prisma.campaign_metric?.count
+        ? this.prisma.campaign_metric.count({
+            where: { campaign_id: record.id },
+          })
+        : Promise.resolve(0),
+    ]);
+
+    return this.mapToEntity(record, requirements, faqs, totalVisits);
+  }
+
+  /**
+   * Consulta las campañas activas o filtradas para el panel administrativo (US-20).
+   * Incluye datos clave, el conteo de visitas mediante _count optimizado, paginación y resumen de métricas.
+   */
+  async findDashboardCampaigns(options: {
+    institutionId?: string;
+    status?: campaign_status | 'ALL';
+    page?: number;
+    limit?: number;
+  }): Promise<DashboardCampaignsRepositoryResult> {
+    const where: Prisma.campaignWhereInput = {
+      ...(options.institutionId
+        ? { institution_id: options.institutionId }
+        : {}),
+      ...(options.status && options.status !== 'ALL'
+        ? { status: options.status as campaign_status }
+        : {}),
+    };
+
+    const page = options.page && options.page > 0 ? options.page : 1;
+    const limit = options.limit && options.limit > 0 ? options.limit : 30;
+    const shouldPaginate =
+      options.page !== undefined || options.limit !== undefined;
+
+    const findManyPromise = this.prisma.campaign.findMany({
+      where,
+      include: {
+        institution: {
+          select: {
+            id: true,
+            name: true,
+            city: true,
+          },
+        },
+        _count: {
+          select: {
+            campaign_metric: true,
+          },
+        },
+      },
+      orderBy: { created_at: 'desc' },
+      ...(shouldPaginate ? { skip: (page - 1) * limit, take: limit } : {}),
+    });
+
+    const countPromise =
+      typeof this.prisma.campaign.count === 'function'
+        ? this.prisma.campaign.count({ where })
+        : Promise.resolve(undefined);
+
+    const institutionWhere: Prisma.campaignWhereInput = options.institutionId
+      ? { institution_id: options.institutionId }
+      : {};
+
+    const summaryPromises =
+      typeof this.prisma.campaign.count === 'function' &&
+      typeof this.prisma.campaign.aggregate === 'function' &&
+      this.prisma.campaign_metric &&
+      typeof this.prisma.campaign_metric.count === 'function'
+        ? Promise.all([
+            this.prisma.campaign.count({ where: institutionWhere }),
+            this.prisma.campaign.count({
+              where: { ...institutionWhere, status: 'ACTIVE' },
+            }),
+            this.prisma.campaign.aggregate({
+              where: institutionWhere,
+              _sum: {
+                current_donors: true,
+              },
+            }),
+            this.prisma.campaign_metric.count({
+              where: options.institutionId
+                ? { campaign: { institution_id: options.institutionId } }
+                : {},
+            }),
+          ])
+        : Promise.resolve(null);
+
+    const [records, totalCount, summaryData] = await Promise.all([
+      findManyPromise,
+      countPromise,
+      summaryPromises,
+    ]);
+
+    const total = totalCount !== undefined ? totalCount : records.length;
+    const totalPages = Math.max(1, Math.ceil(total / limit));
+
+    const items: CampaignDashboardItemDto[] = records.map((record) => {
+      const target = record.target_donors;
+      const current = record.current_donors ?? 0;
+      const progressPercentage =
+        target && target > 0
+          ? Math.min(100, Math.round((current / target) * 100))
+          : null;
+
+      return {
+        id: record.id,
+        slug: record.slug,
+        patientName: record.patient_name,
+        bloodType: record.blood_type,
+        donationType: record.donation_type,
+        status: record.status,
+        createdAt: record.created_at,
+        deadline: record.deadline,
+        targetDonors: record.target_donors,
+        currentDonors: record.current_donors,
+        progressPercentage,
+        totalVisits: record._count?.campaign_metric ?? 0,
+        institution: record.institution
+          ? {
+              id: record.institution.id,
+              name: record.institution.name,
+              city: record.institution.city,
+            }
+          : null,
+      };
+    });
+
+    const result = items as DashboardCampaignsRepositoryResult;
+    result.campaigns = items;
+    result.pagination = {
+      total,
+      page,
+      limit,
+      totalPages,
+    };
+    if (summaryData) {
+      const [totalCampanias, activas, aggregateDonors, totalVisitas] =
+        summaryData;
+      result.summary = {
+        totalCampanias,
+        activas,
+        totalVisitas,
+        donantesConseguidos: aggregateDonors?._sum?.current_donors ?? 0,
+      };
+    }
+
+    return result;
+  }
+
+  /**
+   * Actualiza atómicamente a EXPIRED todas las campañas con fecha límite vencida que sigan en estado ACTIVE (BUG-04).
+   */
+  async expireOverdueCampaigns(): Promise<number> {
+    const result = await this.prisma.$executeRaw`
+      UPDATE campaign
+      SET status = 'EXPIRED'::campaign_status,
+          updated_at = timezone('utc'::text, now())
+      WHERE status = 'ACTIVE'::campaign_status
+        AND deadline IS NOT NULL
+        AND deadline < CURRENT_DATE;
+    `;
+    if (result > 0) {
+      this.logger.log(
+        `Expiración automática: ${result} campaña(s) vencida(s) pasaron a estado 'EXPIRED'.`,
+      );
+    }
+    return result;
+  }
+
+  /**
+   * Calcula las métricas globales acumuladas para la institución o plataforma (BUG-01).
+   */
+  async getDashboardSummary(
+    institutionId?: string,
+  ): Promise<CampaignDashboardSummaryDto> {
+    const institutionWhere: Prisma.campaignWhereInput = institutionId
+      ? { institution_id: institutionId }
+      : {};
+
+    const [totalCampanias, activas, donorsAgg, visitsCount] =
+      await Promise.all([
+        this.prisma.campaign.count({
+          where: institutionWhere,
+        }),
+        this.prisma.campaign.count({
+          where: {
+            ...institutionWhere,
+            status: 'ACTIVE',
+          },
+        }),
+        this.prisma.campaign.aggregate({
+          where: institutionWhere,
+          _sum: {
+            current_donors: true,
+          },
+        }),
+        this.prisma.campaign_metric.count({
+          where: institutionId
+            ? {
+                campaign: {
+                  institution_id: institutionId,
+                },
+              }
+            : {},
+        }),
+      ]);
+
+    return {
+      totalCampanias,
+      activas,
+      totalVisitas: visitsCount,
+      donantesConseguidos: donorsAgg._sum.current_donors ?? 0,
+    };
+  }
+
+  /**
+   * Aplica un incremento o decremento atómico seguro sobre current_donors en PostgreSQL
+   * asegurando no descender por debajo de 0 mediante GREATEST(0, current_donors + delta) (BUG-02, BUG-03).
+   */
+  async atomicUpdateDonors(
+    campaignId: string,
+    institutionId: string,
+    delta: number,
+  ): Promise<number> {
+    const result = await this.prisma.$queryRaw<{ current_donors: number }[]>`
+      UPDATE campaign
+      SET current_donors = GREATEST(0, COALESCE(current_donors, 0) + ${delta}),
+          updated_at = timezone('utc'::text, now())
+      WHERE id = ${campaignId}::uuid AND institution_id = ${institutionId}::uuid
+      RETURNING current_donors;
+    `;
+    return result[0]?.current_donors ?? 0;
+  }
+
+  /**
+   * Consulta los requisitos generales y específicos aplicables a la institución.
+   */
+  async findRequirements(
+    institutionId?: string,
+    category?: string,
+    immediateOnly?: boolean,
+  ): Promise<RequirementEntity[]> {
+    const where: Prisma.requirementWhereInput = {
+      ...(institutionId
+        ? {
+            OR: [{ institution_id: null }, { institution_id: institutionId }],
+          }
+        : { institution_id: null }),
+      ...(category
+        ? { category: { equals: category, mode: 'insensitive' } }
+        : {}),
+      ...(immediateOnly !== undefined
+        ? { is_immediate_disqualification: immediateOnly }
+        : {}),
+    };
+
+    const records = await this.prisma.requirement.findMany({
+      where,
+      orderBy: [{ display_order: 'asc' }, { title: 'asc' }],
+    });
+
+    return records.map(
+      (r) =>
+        new RequirementEntity({
+          id: r.id,
+          institutionId: r.institution_id,
+          title: r.title,
+          description: r.description,
+          isImmediateDisqualification: r.is_immediate_disqualification,
+          category: r.category,
+          displayOrder: r.display_order,
+        }),
+    );
+  }
+
+  /**
+   * Consulta las preguntas frecuentes generales y específicas aplicables a la institución.
+   */
+  async findFaqs(
+    institutionId?: string,
+    category?: string,
+  ): Promise<FaqItemEntity[]> {
+    const where: Prisma.faq_itemWhereInput = {
+      ...(institutionId
+        ? {
+            OR: [{ institution_id: null }, { institution_id: institutionId }],
+          }
+        : { institution_id: null }),
+      ...(category
+        ? { category: { equals: category, mode: 'insensitive' } }
+        : {}),
+    };
+
+    const records = await this.prisma.faq_item.findMany({
+      where,
+      orderBy: [{ display_order: 'asc' }, { question: 'asc' }],
+    });
+
+    return records.map(
+      (f) =>
+        new FaqItemEntity({
+          id: f.id,
+          institutionId: f.institution_id,
+          question: f.question,
+          answer: f.answer,
+          category: f.category,
+          displayOrder: f.display_order,
+        }),
+    );
+  }
+
+  /**
+   * Verifica la existencia y estado activo de un centro de salud.
+   */
+  async institutionExists(institutionId: string): Promise<boolean> {
+    const count = await this.prisma.institution.count({
+      where: {
+        id: institutionId,
+        is_active: true,
+      },
+    });
+
+    return count > 0;
+  }
+
+  /**
+   * Obtiene los datos de una institución por su ID.
+   */
+  async getInstitutionById(institutionId: string) {
+    return this.prisma.institution.findUnique({
+      where: { id: institutionId },
+    });
+  }
+
+  /**
+   * Actualiza el estado de una campaña (ej. de DRAFT a ACTIVE al confirmar).
+   */
+  async updateStatus(
+    id: string,
+    status: Prisma.campaignUpdateInput['status'],
+  ): Promise<CampaignEntity> {
+    const updated = await this.prisma.campaign.update({
+      where: { id },
+      data: { status },
+      include: {
+        institution: {
+          select: this.institutionSelect,
+        },
+        campaign_asset: true,
+      },
+    });
+
+    return this.mapToEntity(updated);
+  }
+
+  /**
+   * Actualiza los datos de una campaña existente (US-09).
+   */
+  async update(id: string, data: UpdateCampaignData): Promise<CampaignEntity> {
+    const prismaUpdateData: Prisma.campaignUpdateInput = {
+      ...(data.patientName !== undefined
+        ? { patient_name: data.patientName }
+        : {}),
+      ...(data.slug !== undefined ? { slug: data.slug } : {}),
+      ...(data.bloodType !== undefined ? { blood_type: data.bloodType } : {}),
+      ...(data.donationType !== undefined
+        ? { donation_type: data.donationType }
+        : {}),
+      ...(data.targetDonors !== undefined
+        ? { target_donors: data.targetDonors }
+        : {}),
+      ...(data.deadline !== undefined ? { deadline: data.deadline } : {}),
+      ...(data.observations !== undefined
+        ? { observations: data.observations }
+        : {}),
+      ...(data.generatedCopy !== undefined
+        ? { generated_copy: data.generatedCopy }
+        : {}),
+      ...(data.status !== undefined ? { status: data.status } : {}),
+      ...(data.currentDonors !== undefined
+        ? { current_donors: data.currentDonors }
+        : {}),
+      ...(data.institutionId !== undefined
+        ? {
+            institution: {
+              connect: { id: data.institutionId },
+            },
+          }
+        : {}),
+    };
+
+    const updated = await this.prisma.campaign.update({
+      where: { id },
+      data: prismaUpdateData,
+      include: {
+        institution: {
+          select: this.institutionSelect,
+        },
+        campaign_asset: true,
+      },
+    });
+
+    this.logger.log(`Campaña con ID '${id}' actualizada exitosamente.`);
+    return this.mapToEntity(updated);
+  }
+
+  /**
+   * Mapea un registro raw de Prisma al modelo de dominio CampaignEntity.
+   */
+  private mapToEntity(
+    record: any,
+    requirements: RequirementEntity[] = [],
+    faqs: FaqItemEntity[] = [],
+    totalVisits = 0,
+  ): CampaignEntity {
+    return new CampaignEntity({
+      id: record.id,
+      slug: record.slug,
+      editToken: record.edit_token,
+      institutionId: record.institution_id,
+      patientName: record.patient_name,
+      bloodType: record.blood_type,
+      donationType: record.donation_type,
+      targetDonors: record.target_donors,
+      currentDonors: record.current_donors,
+      deadline: record.deadline,
+      observations: record.observations,
+      generatedCopy: record.generated_copy,
+      status: record.status,
+      createdAt: record.created_at,
+      updatedAt: record.updated_at,
+      totalVisits,
+      institution: record.institution
+        ? {
+            id: record.institution.id,
+            name: record.institution.name,
+            address: record.institution.address,
+            city: record.institution.city,
+            phone: record.institution.phone ?? null,
+            whatsapp: record.institution.whatsapp ?? null,
+            email: record.institution.email ?? null,
+            websiteUrl: record.institution.website_url ?? null,
+            requirementsUrl: record.institution.requirements_url ?? null,
+            faqUrl: record.institution.faq_url ?? null,
+            businessHours: record.institution.business_hours ?? null,
+            specificRequirements:
+              record.institution.specific_requirements ?? null,
+            logoUrl: record.institution.logo_url ?? null,
+          }
+        : undefined,
+      assets: Array.isArray(record.campaign_asset)
+        ? record.campaign_asset.map(
+            (a: any) =>
+              new CampaignAssetEntity({
+                id: a.id,
+                campaignId: a.campaign_id,
+                format: a.format,
+                imageUrl: a.image_url,
+                width: a.width,
+                height: a.height,
+                createdAt: a.created_at,
+              }),
+          )
+        : undefined,
+      requirements,
+      faqs,
+    });
+  }
+}
