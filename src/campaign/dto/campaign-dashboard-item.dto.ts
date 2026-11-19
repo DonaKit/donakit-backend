@@ -22,9 +22,26 @@ export class CampaignDashboardItemDto {
   institution?: CampaignDashboardInstitutionDto | null;
 }
 
+export class DashboardPaginationDto {
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
+export class DashboardSummaryDto {
+  totalCampanias?: number;
+  activas?: number;
+  totalVisitas?: number;
+  donantesConseguidos?: number;
+}
+
 export class CampaignDashboardResponseDto {
   success: boolean;
   message: string;
   data: CampaignDashboardItemDto[];
+  campaigns?: CampaignDashboardItemDto[];
+  pagination?: DashboardPaginationDto;
   total: number;
+  summary?: DashboardSummaryDto;
 }

@@ -12,6 +12,7 @@ import {
 import { CampaignService } from '../campaign/campaign.service.js';
 import { AdminUpdateCampaignDto } from '../campaign/dto/admin-update-campaign.dto.js';
 import type { CampaignDashboardResponseDto } from '../campaign/dto/campaign-dashboard-item.dto.js';
+import { DashboardCampaignsQueryDto } from '../campaign/dto/dashboard-campaigns-query.dto.js';
 import type { CampaignResponseDto } from '../campaign/dto/campaign-response.dto.js';
 import type { InstitutionItemDto } from './dto/institution-item.dto.js';
 import { InstitutionService } from './institution.service.js';
@@ -37,24 +38,59 @@ export class InstitutionController {
   }
 
   /**
+   * Endpoint para listar las campañas de una institución específica para el dashboard con paginación (US-20).
+   * Alias: GET /institutions/:id/campaigns/dashboard
+   */
+  @Get(':id/campaigns/dashboard')
+  async findCampaignsDashboard(
+    @Param('id') id: string,
+    @Query() query?: DashboardCampaignsQueryDto | string,
+  ): Promise<CampaignDashboardResponseDto> {
+    return this.findCampaigns(id, query);
+  }
+
+  /**
    * Endpoint para listar las campañas de una institución específica para el dashboard (US-20).
-   * Por defecto filtra las campañas abiertas/activas (o según query param ?status=...).
+   * Por defecto filtra las campañas abiertas/activas y admite paginación (?status=...&page=...&limit=...).
    */
   @Get(':id/campaigns')
   async findCampaigns(
     @Param('id') id: string,
-    @Query('status') status?: string,
+    @Query() query?: DashboardCampaignsQueryDto | string,
   ): Promise<CampaignDashboardResponseDto> {
-    const campaigns = await this.campaignService.findDashboardCampaigns({
+    const queryDto: DashboardCampaignsQueryDto =
+      typeof query === 'string'
+        ? { status: query, page: 1, limit: 30 }
+        : (query ?? { status: 'ACTIVE', page: 1, limit: 30 });
+
+    const result = await this.campaignService.findDashboardCampaigns({
       institutionId: id,
-      status,
+      status: queryDto.status,
+      page: queryDto.page,
+      limit: queryDto.limit,
     });
+
+    const campaigns =
+      result.campaigns ??
+      (Array.isArray(result) ? result : (result as any).data ?? []);
+    const pagination = result.pagination ?? {
+      total: campaigns.length,
+      page: queryDto.page ?? 1,
+      limit: queryDto.limit ?? 30,
+      totalPages: Math.max(
+        1,
+        Math.ceil(campaigns.length / (queryDto.limit ?? 30)),
+      ),
+    };
 
     return {
       success: true,
       message: 'Listado de campañas de la institución obtenido exitosamente.',
       data: campaigns,
-      total: campaigns.length,
+      campaigns,
+      pagination,
+      total: pagination.total,
+      ...(result.summary ? { summary: result.summary } : {}),
     };
   }
 

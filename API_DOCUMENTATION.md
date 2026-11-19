@@ -140,14 +140,17 @@ Devuelve el catálogo de centros de salud e instituciones activas acotado a los 
 
 ### 3.2.1. Panel de Campañas Abiertas de la Institución (Dashboard) - US-20
 
-Devuelve el listado de solicitudes y campañas de donación abiertas/activas para el panel de seguimiento de la institución administrativa. Incluye datos clave y el avance de donantes junto con el total acumulado de visitas (`totalVisits`).
+Devuelve el listado de solicitudes y campañas de donación para el panel de seguimiento de la institución administrativa con paginación formal y resumen de indicadores (KPIs). Incluye datos clave, el avance porcentual de donantes y el total acumulado de visitas (`totalVisits`).
 
-Disponible tanto como sub-recurso de la institución como en la colección de campañas:
+Disponible tanto como sub-recurso de la institución como en la colección global de campañas:
 * **Rutas:**
-  * `GET /institutions/:id/campaigns` *(recomendada para el panel institucional)*
+  * `GET /institutions/:id/campaigns/dashboard` *(ruta formal del panel institucional)*
+  * `GET /institutions/:id/campaigns` *(alias del panel institucional)*
   * `GET /campaigns?institutionId=...` *(o `GET /campaigns` para dashboard general)*
 * **Query Params (opcionales):**
-  * `status`: Filtra por estado (`ACTIVE`, `COMPLETED`, `EXPIRED`, `CANCELLED` o `ALL`). Por defecto: `ACTIVE`.
+  * `status`: Filtra por estado (`ACTIVE`, `COMPLETED`, `EXPIRED`, `CANCELLED`, `DRAFT` o `ALL`). Por defecto: `ACTIVE`.
+  * `page`: Número de página solicitado (entero >= 1). Por defecto: `1`.
+  * `limit`: Cantidad máxima de campañas devueltas por página (entero entre 1 y 100). Por defecto: `30`.
   * `institutionId`: (cuando se usa `/campaigns`) filtra por centro de salud.
 
 #### Respuesta `200 OK`:
@@ -155,7 +158,19 @@ Disponible tanto como sub-recurso de la institución como en la colección de ca
 {
   "success": true,
   "message": "Listado de campañas para panel administrativo obtenido exitosamente.",
-  "total": 1,
+  "total": 42,
+  "pagination": {
+    "total": 42,
+    "page": 1,
+    "limit": 30,
+    "totalPages": 2
+  },
+  "summary": {
+    "totalCampanias": 50,
+    "activas": 12,
+    "totalVisitas": 340,
+    "donantesConseguidos": 88
+  },
   "data": [
     {
       "id": "b73a9e21-4f10-4821-bdfe-7bd73db49b06",
@@ -182,13 +197,16 @@ Disponible tanto como sub-recurso de la institución como en la colección de ca
 
 ---
 
-### 3.2.2. Gestión Administrativa de Campañas por la Institución (Guardar / Sumar Donantes / Cerrar) - US-16, US-20
+### 3.2.2. Gestión Administrativa de Campañas por la Institución (Guardar / Sumar Donantes / Reapertura / Cerrar) - US-16, US-20
 
-Permite al personal administrativo de la institución gestionar directamente las solicitudes de su centro de salud desde su panel: entrar a la campaña, aumentar o fijar la cantidad de donantes alcanzados (`currentDonors`), cambiar el estado para darla por cubierta/cerrada (`status = 'COMPLETED'`) o actualizar fechas y observaciones, y **guardar los cambios** sin necesidad del `editToken` familiar.
+Permite al personal administrativo de la institución gestionar directamente las solicitudes de su centro de salud desde su panel: entrar a la campaña, aumentar o fijar la cantidad de donantes alcanzados (`currentDonors`), cambiar el estado para darla por cubierta/cerrada (`status = 'COMPLETED'`), reabrir una campaña con meta ampliada o sin tope (`status = 'ACTIVE'`) o actualizar fechas y observaciones, y **guardar los cambios** sin necesidad del `editToken` familiar.
 
-#### Reglas de Negocio para Cierre y Avance:
+#### Reglas de Negocio para Cierre, Reapertura y Gestión de Donantes:
 1. **Sin meta definida (`targetDonors = null` o vacío):** La campaña **nunca se cerrará automáticamente**, sin importar cuántos donantes se registren. Permanecerá abierta (`ACTIVE`) hasta que el administrador o la familia envíen explícitamente `status: "COMPLETED"` (o `"CANCELLED"`).
 2. **Con meta definida (`targetDonors > 0`):** Si el administrador actualiza o incrementa la cantidad de donantes alcanzando o superando la meta requerida (`currentDonors >= targetDonors`) sin especificar un nuevo estado, el sistema **cambia automáticamente el estado a `"COMPLETED"`** y fija el avance en `progressPercentage: 100%`.
+3. **Restricción de decremento en completadas con meta alcanzada:** Si una campaña se encuentra en `COMPLETED` habiendo alcanzado o superado su meta (`currentDonors >= targetDonors`), se **bloquea cualquier decremento** (`incrementDonors < 0` o `currentDonors < anteriores`), respondiendo `400 Bad Request`: *"No está permitido restar donantes a una campaña completada que alcanzó su meta. Debe reabrir la campaña primero."*
+4. **Reapertura controlada con ampliación de meta:** Si una campaña `COMPLETED` cuya meta fue alcanzada se reactiva enviando `status: "ACTIVE"`, el administrador **debe ingresar una nueva meta (`targetDonors`) estrictamente superior a los donantes ya conseguidos**, o bien dejarla sin tope enviando `targetDonors: null`. De lo contrario, el sistema responde `400 Bad Request`: *"Para reabrir una campaña cuya meta fue alcanzada, debe ingresar una nueva meta de donantes mayor a los donantes ya conseguidos (X) o dejarla sin límite fijado (null)."*
+5. **Edición directa de donantes solo en campañas activas:** La asignación directa del contador (`currentDonors`) solo está permitida si la campaña se encuentra actualmente en estado `ACTIVE` o si en la misma petición se reactiva con `status: "ACTIVE"`. De lo contrario, responde `400 Bad Request`: *"Solo se puede modificar la cantidad de donantes en campañas que se encuentren activas."*
 
 #### 1. Modificar y Guardar Cambios de la Campaña (`PATCH /institutions/:institutionId/campaigns/:campaignId`)
 
@@ -215,14 +233,30 @@ Permite al personal administrativo de la institución gestionar directamente las
 }
 ```
 
+*Ejemplo de corrección decremental (-1 donante) en campaña activa:*
+```json
+{
+  "incrementDonors": -1
+}
+```
+
+*Ejemplo de reapertura formal con ampliación de meta:*
+```json
+{
+  "status": "ACTIVE",
+  "targetDonors": 15,
+  "deadline": "2026-12-31"
+}
+```
+
 #### Parámetros del Body:
 
 | Campo | Tipo | Obligatorio | Descripción |
 | :--- | :--- | :---: | :--- |
-| `currentDonors` | `integer` | No | Fija el total acumulado de donantes que asistieron (0 a 1000). Recalcula automáticamente el `progressPercentage`. |
-| `incrementDonors` | `integer` | No | Suma directamente la cantidad indicada al total de donantes actual (ej. `1` para registrar un nuevo donante que llegó al hospital). |
-| `status` | `string` | No | Estado de la solicitud (`ACTIVE`, `COMPLETED`, `EXPIRED`, `CANCELLED`). Permite cerrar la campaña marcándola como `COMPLETED`. |
-| `targetDonors` | `integer` / `null` | No | Permite ajustar la meta requerida de donantes si cambia el requerimiento clínico. |
+| `currentDonors` | `integer` | No | Fija el total acumulado de donantes que asistieron (0 a 1000). Solo permitido en campañas `ACTIVE` o en reapertura. |
+| `incrementDonors` | `integer` | No | Ajuste relativo de donantes (-100 a +100). Permite sumar (+1) o restar (-1 para correcciones en campañas activas). |
+| `status` | `string` | No | Estado de la solicitud (`ACTIVE`, `COMPLETED`, `EXPIRED`, `CANCELLED`). Permite cerrar o reabrir la campaña. |
+| `targetDonors` | `integer` / `null` | No | Permite ajustar la meta requerida de donantes (1 a 1000) o remover el límite (`null`). |
 | `deadline` | `string` / `null` | No | Prorroga o actualiza la fecha límite en formato ISO 8601 o `YYYY-MM-DD`. |
 | `patientName` | `string` | No | Corrige el nombre del paciente (regenera el slug URL-friendly si cambia). |
 | `bloodType` | `string` | No | Modifica o corrige el grupo sanguíneo requerido. |

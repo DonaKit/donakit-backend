@@ -414,9 +414,18 @@ describe('CampaignController', () => {
       expect(mockService.findDashboardCampaigns).toHaveBeenCalledWith({
         institutionId: 'inst-1',
         status: 'ACTIVE',
+        page: 1,
+        limit: 30,
       });
       expect(response.success).toBe(true);
       expect(response.data).toEqual(mockCampaigns);
+      expect(response.campaigns).toEqual(mockCampaigns);
+      expect(response.pagination).toEqual({
+        total: 1,
+        page: 1,
+        limit: 30,
+        totalPages: 1,
+      });
       expect(response.total).toBe(1);
     });
   });

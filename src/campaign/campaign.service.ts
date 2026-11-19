@@ -19,7 +19,7 @@ import type { UpdateCampaignDto } from './dto/update-campaign.dto.js';
 import type { UploadCampaignAssetsDto } from './dto/upload-campaign-assets.dto.js';
 import { CampaignAssetEntity } from './entities/campaign-asset.entity.js';
 import { CampaignEntity } from './entities/campaign.entity.js';
-import type { CampaignDashboardItemDto } from './dto/campaign-dashboard-item.dto.js';
+import type { DashboardCampaignsRepositoryResult } from './interfaces/campaign-repository.interface.js';
 import type { FaqItemEntity } from './entities/faq-item.entity.js';
 import type { RequirementEntity } from './entities/requirement.entity.js';
 import { CampaignAssetRepository } from './repositories/campaign-asset.repository.js';
@@ -213,12 +213,14 @@ export class CampaignService {
 
   /**
    * Consulta las campañas para el panel de la institución / dashboard (US-20).
-   * Devuelve las métricas de visitas acumuladas y datos clave de cada campaña.
+   * Devuelve las métricas de visitas acumuladas, paginación y datos clave de cada campaña.
    */
   async findDashboardCampaigns(options: {
     institutionId?: string;
     status?: string;
-  }): Promise<CampaignDashboardItemDto[]> {
+    page?: number;
+    limit?: number;
+  }): Promise<DashboardCampaignsRepositoryResult> {
     if (options.institutionId) {
       const institutionExists = await this.campaignRepository.institutionExists(
         options.institutionId,
@@ -235,6 +237,8 @@ export class CampaignService {
     return this.campaignRepository.findDashboardCampaigns({
       institutionId: options.institutionId,
       status: normalizedStatus,
+      page: options.page,
+      limit: options.limit,
     });
   }
 
@@ -279,12 +283,62 @@ export class CampaignService {
     // 1. Validar existencia y pertenencia a la institución
     const campaign = await this.adminFindOne(institutionId, campaignId);
 
+    const actuales = campaign.currentDonors ?? 0;
+    const metaPreviaAlcanzada =
+      campaign.targetDonors !== null &&
+      campaign.targetDonors !== undefined &&
+      actuales >= campaign.targetDonors;
+
     // 2. Calcular nueva cantidad de donantes si se envía incremento o fijación directa
     let newCurrentDonors: number | undefined;
     if (dto.incrementDonors !== undefined) {
-      newCurrentDonors = (campaign.currentDonors ?? 0) + dto.incrementDonors;
+      newCurrentDonors = Math.max(0, actuales + dto.incrementDonors);
     } else if (dto.currentDonors !== undefined) {
       newCurrentDonors = dto.currentDonors;
+    }
+
+    // 3. Regla 1: No permitir decremento (-1) en completadas con meta alcanzada antes de reabrir
+    const intentaDecrementar =
+      (dto.incrementDonors !== undefined && dto.incrementDonors < 0) ||
+      (newCurrentDonors !== undefined && newCurrentDonors < actuales);
+
+    if (
+      campaign.status === 'COMPLETED' &&
+      metaPreviaAlcanzada &&
+      intentaDecrementar
+    ) {
+      throw new BadRequestException(
+        'No está permitido restar donantes a una campaña completada que alcanzó su meta. Debe reabrir la campaña primero.',
+      );
+    }
+
+    // 4. Regla 3: Edición directa de donantes solo en campañas activas (o en reapertura a ACTIVE)
+    if (
+      dto.currentDonors !== undefined &&
+      campaign.status !== 'ACTIVE' &&
+      dto.status !== 'ACTIVE'
+    ) {
+      throw new BadRequestException(
+        'Solo se puede modificar la cantidad de donantes en campañas que se encuentren activas.',
+      );
+    }
+
+    // 5. Regla 2: Reapertura controlada de completadas con meta alcanzada (exige nueva meta > actuales o null)
+    if (
+      campaign.status === 'COMPLETED' &&
+      metaPreviaAlcanzada &&
+      dto.status === 'ACTIVE'
+    ) {
+      const nuevaMeta = dto.targetDonors;
+      // Si no envía targetDonors o envía una meta menor o igual a los donantes ya asistidos
+      if (
+        nuevaMeta !== null &&
+        (nuevaMeta === undefined || nuevaMeta <= actuales)
+      ) {
+        throw new BadRequestException(
+          `Para reabrir una campaña cuya meta fue alcanzada, debe ingresar una nueva meta de donantes mayor a los donantes ya conseguidos (${actuales}) o dejarla sin límite fijado (null).`,
+        );
+      }
     }
 
     // 3. Manejo de cambio de nombre de paciente (regeneración de slug si aplica)

@@ -8,6 +8,7 @@ import { FaqItemEntity } from '../entities/faq-item.entity.js';
 import { RequirementEntity } from '../entities/requirement.entity.js';
 import type {
   CreateCampaignData,
+  DashboardCampaignsRepositoryResult,
   ICampaignRepository,
   UpdateCampaignData,
 } from '../interfaces/campaign-repository.interface.js';
@@ -134,12 +135,14 @@ export class CampaignRepository implements ICampaignRepository {
 
   /**
    * Consulta las campañas activas o filtradas para el panel administrativo (US-20).
-   * Incluye datos clave y el conteo de visitas mediante _count optimizado.
+   * Incluye datos clave, el conteo de visitas mediante _count optimizado, paginación y resumen de métricas.
    */
   async findDashboardCampaigns(options: {
     institutionId?: string;
     status?: campaign_status | 'ALL';
-  }): Promise<CampaignDashboardItemDto[]> {
+    page?: number;
+    limit?: number;
+  }): Promise<DashboardCampaignsRepositoryResult> {
     const where: Prisma.campaignWhereInput = {
       ...(options.institutionId
         ? { institution_id: options.institutionId }
@@ -151,7 +154,12 @@ export class CampaignRepository implements ICampaignRepository {
           : { status: 'ACTIVE' }),
     };
 
-    const records = await this.prisma.campaign.findMany({
+    const page = options.page && options.page > 0 ? options.page : 1;
+    const limit = options.limit && options.limit > 0 ? options.limit : 30;
+    const shouldPaginate =
+      options.page !== undefined || options.limit !== undefined;
+
+    const findManyPromise = this.prisma.campaign.findMany({
       where,
       include: {
         institution: {
@@ -168,9 +176,52 @@ export class CampaignRepository implements ICampaignRepository {
         },
       },
       orderBy: { created_at: 'desc' },
+      ...(shouldPaginate ? { skip: (page - 1) * limit, take: limit } : {}),
     });
 
-    return records.map((record) => {
+    const countPromise =
+      typeof this.prisma.campaign.count === 'function'
+        ? this.prisma.campaign.count({ where })
+        : Promise.resolve(undefined);
+
+    const institutionWhere: Prisma.campaignWhereInput = options.institutionId
+      ? { institution_id: options.institutionId }
+      : {};
+
+    const summaryPromises =
+      typeof this.prisma.campaign.count === 'function' &&
+      typeof this.prisma.campaign.aggregate === 'function' &&
+      this.prisma.campaign_metric &&
+      typeof this.prisma.campaign_metric.count === 'function'
+        ? Promise.all([
+            this.prisma.campaign.count({ where: institutionWhere }),
+            this.prisma.campaign.count({
+              where: { ...institutionWhere, status: 'ACTIVE' },
+            }),
+            this.prisma.campaign.aggregate({
+              where: institutionWhere,
+              _sum: {
+                current_donors: true,
+              },
+            }),
+            this.prisma.campaign_metric.count({
+              where: options.institutionId
+                ? { campaign: { institution_id: options.institutionId } }
+                : {},
+            }),
+          ])
+        : Promise.resolve(null);
+
+    const [records, totalCount, summaryData] = await Promise.all([
+      findManyPromise,
+      countPromise,
+      summaryPromises,
+    ]);
+
+    const total = totalCount !== undefined ? totalCount : records.length;
+    const totalPages = Math.max(1, Math.ceil(total / limit));
+
+    const items: CampaignDashboardItemDto[] = records.map((record) => {
       const target = record.target_donors;
       const current = record.current_donors ?? 0;
       const progressPercentage =
@@ -200,6 +251,27 @@ export class CampaignRepository implements ICampaignRepository {
           : null,
       };
     });
+
+    const result = items as DashboardCampaignsRepositoryResult;
+    result.campaigns = items;
+    result.pagination = {
+      total,
+      page,
+      limit,
+      totalPages,
+    };
+    if (summaryData) {
+      const [totalCampanias, activas, aggregateDonors, totalVisitas] =
+        summaryData;
+      result.summary = {
+        totalCampanias,
+        activas,
+        totalVisitas,
+        donantesConseguidos: aggregateDonors._sum?.current_donors ?? 0,
+      };
+    }
+
+    return result;
   }
 
   /**

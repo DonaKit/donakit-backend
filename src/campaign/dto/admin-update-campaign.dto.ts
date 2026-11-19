@@ -53,8 +53,8 @@ export class AdminUpdateCampaignDto {
   currentDonors?: number;
 
   /**
-   * Cantidad incremental de donantes a sumar al total actual (ej. 1 para botón "+1 Donante").
-   * Opcional. Si se provee, se suma al valor actual de currentDonors.
+   * Ajuste incremental o decremental de donantes (ej. 1 para "+1 Donante", -1 para corrección).
+   * Opcional. Si se provee, se suma algebraicamente al valor actual de currentDonors.
    */
   @Transform(({ obj, value }) => {
     const val = value !== undefined ? value : obj?.increment_donors;
@@ -64,13 +64,16 @@ export class AdminUpdateCampaignDto {
   })
   @IsOptional()
   @IsInt({
-    message: 'El incremento de donantes debe ser un número entero.',
+    message:
+      'El incremento o decremento de donantes debe ser un número entero.',
   })
-  @Min(1, {
-    message: 'El incremento de donantes debe ser al menos 1.',
+  @Min(-100, {
+    message:
+      'El ajuste de donantes no puede ser menor a -100 en una sola operación.',
   })
   @Max(100, {
-    message: 'El incremento de donantes no puede exceder 100 en una sola operación.',
+    message:
+      'El incremento de donantes no puede exceder 100 en una sola operación.',
   })
   incrementDonors?: number;
 

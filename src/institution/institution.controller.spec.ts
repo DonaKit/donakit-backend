@@ -64,10 +64,54 @@ describe('InstitutionController', () => {
       expect(mockCampaignService.findDashboardCampaigns).toHaveBeenCalledWith({
         institutionId: 'inst-1',
         status: 'ACTIVE',
+        page: 1,
+        limit: 30,
       });
       expect(response.success).toBe(true);
       expect(response.data).toEqual(mockCampaigns);
+      expect(response.campaigns).toEqual(mockCampaigns);
+      expect(response.pagination).toEqual({
+        total: 1,
+        page: 1,
+        limit: 30,
+        totalPages: 1,
+      });
       expect(response.total).toBe(1);
+    });
+
+    it('findCampaignsDashboard debe actuar como alias de findCampaigns y respetar paginación personalizada', async () => {
+      const mockCampaigns = [
+        {
+          id: 'camp-2',
+          slug: 'donantes-test-2',
+          patientName: 'María López',
+          totalVisits: 5,
+        },
+      ];
+      mockCampaignService.findDashboardCampaigns.mockResolvedValue(
+        mockCampaigns,
+      );
+
+      const response = await controller.findCampaignsDashboard('inst-1', {
+        status: 'COMPLETED',
+        page: 2,
+        limit: 10,
+      });
+
+      expect(mockCampaignService.findDashboardCampaigns).toHaveBeenCalledWith({
+        institutionId: 'inst-1',
+        status: 'COMPLETED',
+        page: 2,
+        limit: 10,
+      });
+      expect(response.success).toBe(true);
+      expect(response.data).toEqual(mockCampaigns);
+      expect(response.pagination).toEqual({
+        total: 1,
+        page: 2,
+        limit: 10,
+        totalPages: 1,
+      });
     });
   });
 
